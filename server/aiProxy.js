@@ -1,0 +1,132 @@
+const { GoogleGenAI } = require('@google/genai');
+const axios = require('axios');
+
+// Initialize Gemini conditionally
+let ai = null;
+if (process.env.GEMINI_API_KEY) {
+    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+}
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+
+// Using genai SDK per official docs
+async function generateGeminiResponse(prompt) {
+    if (!ai) {
+        throw new Error('GEMINI_API_KEY not configured.');
+    }
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                temperature: 0.8,
+            }
+        });
+        return response.text;
+    } catch (err) {
+        console.error('Gemini Error:', err.message);
+        throw err;
+    }
+}
+
+async function generateDeepSeekResponse(prompt) {
+    if (!DEEPSEEK_API_KEY) {
+        throw new Error('DEEPSEEK_API_KEY not configured.');
+    }
+
+    try {
+        const response = await axios.post(
+            'https://api.deepseek.com/chat/completions',
+            {
+                model: 'deepseek-chat',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.8,
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 10000
+            }
+        );
+        return response.data.choices[0].message.content;
+    } catch (err) {
+        console.error('DeepSeek Error:', err.message);
+        throw err;
+    }
+}
+
+async function generateOllamaResponse(prompt) {
+    const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
+    const ollamaModel = process.env.OLLAMA_MODEL || 'llama3.2';
+
+    try {
+        const response = await axios.post(`${ollamaUrl}/api/generate`, {
+            model: ollamaModel,
+            prompt: prompt,
+            stream: false,
+            options: {
+                temperature: 0.8
+            }
+        });
+        return response.data.response;
+    } catch (err) {
+        console.error('Ollama Error:', err.message);
+        throw err;
+    }
+}
+
+/**
+ * Main entry point for generating persona responses.
+ * Tries Ollama first (if explicitly requested or running locally), then Gemini, Deepseek, or fallback.
+ */
+async function generateResponse(prompt, fallbackString = "...") {
+    try {
+        // 1. Try Ollama (Local LLM)
+        if (process.env.USE_OLLAMA === 'true' || process.env.OLLAMA_URL) {
+            try {
+                const text = await generateOllamaResponse(prompt);
+                if (text) return text.replace(/[""]/g, '').trim();
+            } catch (e) {
+                console.warn('Ollama failed, falling back to cloud APIs...', e.message);
+            }
+        }
+
+        // 2. Try Gemini Primary
+        if (process.env.GEMINI_API_KEY && ai) {
+            const text = await generateGeminiResponse(prompt);
+            if (text) return text.replace(/[""]/g, '').trim(); // clean string
+        }
+
+        // Fallback to DeepSeek Primary if Gemini isn't configured
+        if (process.env.DEEPSEEK_API_KEY) {
+            const text = await generateDeepSeekResponse(prompt);
+            if (text) return text.replace(/[""]/g, '').trim(); // clean string
+        }
+
+        // If no keys configured, return structured fallback
+        return fallbackString;
+
+    } catch (error) {
+        console.warn("AI generation failed, using fallback. Error:", error.message);
+
+        // Try DeepSeek if Gemini failed explicitly
+        if (error.message.includes('GEMINI') || error.message.includes('Google')) {
+            try {
+                if (process.env.DEEPSEEK_API_KEY) {
+                    const text = await generateDeepSeekResponse(prompt);
+                    if (text) return text.replace(/[""]/g, '').trim();
+                }
+            } catch (dsError) {
+                console.error('Secondary DeepSeek fallback also failed:', dsError.message);
+            }
+        }
+
+        return fallbackString;
+    }
+}
+
+module.exports = {
+    generateResponse
+};
