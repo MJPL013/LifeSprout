@@ -39,10 +39,9 @@ function App() {
 
   return (
     <div className="min-h-screen bg-parchment text-ink flex flex-col pt-6 sm:pt-10 px-4">
-      {/* Header */}
       <header className="max-w-5xl w-full mx-auto mb-6 flex justify-between items-baseline">
         <div>
-          <h1 className="text-3xl font-light text-forest-green tracking-tight">Symbiotic Companion</h1>
+          <h1 className="text-3xl font-light text-forest-green tracking-tight">AURA</h1>
           <p className="text-sage text-xs uppercase tracking-widest mt-1 font-semibold">Live Simulation V2</p>
         </div>
       </header>

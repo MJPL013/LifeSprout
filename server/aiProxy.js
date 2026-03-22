@@ -8,6 +8,10 @@ if (process.env.GEMINI_API_KEY) {
 }
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
+// Global throttling for local LLM to prevent system stall
+let activeRequests = 0;
+const MAX_CONCURRENT = 2;
+
 // Using genai SDK per official docs
 async function generateGeminiResponse(prompt) {
     if (!ai) {
@@ -82,6 +86,13 @@ async function generateOllamaResponse(prompt) {
  * Tries Ollama first (if explicitly requested or running locally), then Gemini, Deepseek, or fallback.
  */
 async function generateResponse(prompt, fallbackString = "...") {
+    // Basic queue/throttle check
+    if (activeRequests >= MAX_CONCURRENT) {
+        console.warn('System at capacity, using fallback.');
+        return fallbackString;
+    }
+
+    activeRequests++;
     try {
         // 1. Try Ollama (Local LLM)
         if (process.env.USE_OLLAMA === 'true' || process.env.OLLAMA_URL) {
@@ -111,19 +122,19 @@ async function generateResponse(prompt, fallbackString = "...") {
     } catch (error) {
         console.warn("AI generation failed, using fallback. Error:", error.message);
 
-        // Try DeepSeek if Gemini failed explicitly
-        if (error.message.includes('GEMINI') || error.message.includes('Google')) {
+        // Try DeepSeek if Gemini (or Ollama/primary) failed
+        if (process.env.DEEPSEEK_API_KEY) {
             try {
-                if (process.env.DEEPSEEK_API_KEY) {
-                    const text = await generateDeepSeekResponse(prompt);
-                    if (text) return text.replace(/[""]/g, '').trim();
-                }
+                const text = await generateDeepSeekResponse(prompt);
+                if (text) return text.replace(/[""]/g, '').trim();
             } catch (dsError) {
                 console.error('Secondary DeepSeek fallback also failed:', dsError.message);
             }
         }
 
         return fallbackString;
+    } finally {
+        activeRequests--;
     }
 }
 

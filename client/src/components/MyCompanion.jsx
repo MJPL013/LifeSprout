@@ -47,7 +47,7 @@ export default function MyCompanion({ user, metrics }) {
     const ms = moodStyles[mood] || moodStyles.stable;
 
     return (
-        <div className="glass-card flex-1 p-6 flex flex-col relative overflow-hidden">
+        <div className="glass-card flex-1 p-6 flex flex-col relative overflow-y-auto overflow-x-hidden">
             {/* Visual Header */}
             <div className="text-center mb-6">
                 <h2 className="text-xl font-bold">{user.persona}</h2>

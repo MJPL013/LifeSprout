@@ -32,7 +32,7 @@ export default function Onboarding({ onComplete }) {
                 <div className="bg-forest-green/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Leaf className="text-forest-green w-8 h-8" />
                 </div>
-                <h2 className="text-2xl font-semibold">Welcome to Symbio</h2>
+                <h2 className="text-2xl font-semibold">Welcome to AURA</h2>
                 <p className="text-sm text-sage mt-2">Set up your companion identity to begin.</p>
             </div>
 
