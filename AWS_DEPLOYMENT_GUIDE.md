@@ -2,6 +2,8 @@
 
 Repository: https://github.com/MJPL013/LifeSprout.git
 
+Quick operator runbook: `FINAL_AWS_DEPLOYMENT_GUIDE.md`
+
 This guide deploys LifeSprout on a single AWS EC2 Linux instance for MVP testing. The deployment uses one Node/Express process for the API, Socket.IO, Deepgram routes, and the built React frontend. nginx exposes a stable public HTTP URL on port 80, and PM2 keeps the app alive after you close the terminal.
 
 ## Deployment Model
@@ -19,13 +21,13 @@ Default public URL:
 http://<YOUR_EC2_PUBLIC_IP>/
 ```
 
-No public Vite port is required in this deployment path.
+No public Vite port is required in this deployment path. Do not set `VITE_API_URL` for the default AWS build; the frontend should call the same public origin through nginx.
 
 ## Recommended AWS Shape
 
 - AMI: Ubuntu Server 22.04 LTS or 24.04 LTS.
-- Instance size: `t2.micro` or `t3.micro` for a small MVP demo.
-- Storage: default 8 GB works, but 16-30 GB is more comfortable for Node modules and logs.
+- Instance size: `t3.micro` for basic MVP testing, or `t3.small` for smoother npm installs/builds.
+- Storage: 20-30 GB gp3 is comfortable for Node modules, builds, runtime JSON data, and logs.
 - Security group inbound rules:
   - SSH `22` from your IP, or use EC2 Instance Connect.
   - HTTP `80` from `0.0.0.0/0`.

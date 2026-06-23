@@ -4,8 +4,10 @@ import { io } from 'socket.io-client';
 import MyCompanion from './MyCompanion';
 import RoomFeed from './RoomFeed';
 import VoiceSelector from './VoiceSelector';
-import { LogOut, Users, Mic, Volume2, VolumeX } from 'lucide-react';
+import MicButton from './MicButton';
+import { LogOut, Users, Volume2, VolumeX } from 'lucide-react';
 import RoomSetup from './RoomSetup';
+import { getPlantImageSrc } from '../utils/plants';
 import {
     speakMessage,
     startVoiceCapture,
@@ -25,6 +27,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     const [isActive, setIsActive] = useState(true);
     const [showRoomSetup, setShowRoomSetup] = useState(false);
     const [isListening, setIsListening] = useState(false);
+    const [micStatus, setMicStatus] = useState('idle');
     const [inputValue, setInputValue] = useState('');
     const [isMuted, setIsMuted] = useState(() => getVoiceMuted());
     const [voicePresetId, setVoicePresetId] = useState(() => getStoredVoicePreset(user.userId).id);
@@ -36,6 +39,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     const isMutedRef = useRef(isMuted);
     const voicePresetRef = useRef(selectedVoicePreset);
     const hasSentGreetingRef = useRef(false);
+    const stopMicTimeoutRef = useRef(null);
 
     useEffect(() => {
         isMutedRef.current = isMuted;
@@ -79,6 +83,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         });
 
         return () => {
+            if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
             voiceControllerRef.current?.stop();
             voiceControllerRef.current = null;
             socketRef.current = null;
@@ -123,23 +128,53 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         voicePresetRef.current = preset;
     };
 
+    const stopVoiceInput = () => {
+        if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
+        setMicStatus('stopping');
+        voiceControllerRef.current?.stop();
+        voiceControllerRef.current = null;
+        setIsListening(false);
+        stopMicTimeoutRef.current = setTimeout(() => setMicStatus('idle'), 260);
+    };
+
     const handleMicClick = async () => {
-        if (isListening) {
-            voiceControllerRef.current?.stop();
-            voiceControllerRef.current = null;
-            setIsListening(false);
+        if (isListening || micStatus === 'starting') {
+            stopVoiceInput();
             return;
         }
 
         cancelSpeech();
         setInputValue('');
-        voiceControllerRef.current = await startVoiceCapture({
-            socket: socketRef.current,
-            onInterim: (transcript) => setInputValue(transcript),
-            onFinal: (transcript) => setInputValue(transcript),
-            onState: setIsListening,
-            onError: (message) => console.warn('Voice input fallback:', message)
-        });
+        setIsListening(true);
+        setMicStatus('starting');
+
+        try {
+            voiceControllerRef.current = await startVoiceCapture({
+                socket: socketRef.current,
+                onInterim: (transcript) => setInputValue(transcript),
+                onFinal: (transcript) => setInputValue(transcript),
+                onState: (active) => {
+                    setIsListening(active);
+                    setMicStatus(active ? 'listening' : 'idle');
+                },
+                onError: (message) => {
+                    console.warn('Voice input fallback:', message);
+                    setMicStatus('error');
+                    setTimeout(() => setMicStatus('idle'), 1200);
+                }
+            });
+
+            if (!voiceControllerRef.current) {
+                setIsListening(false);
+                setMicStatus('error');
+                setTimeout(() => setMicStatus('idle'), 1200);
+            }
+        } catch (error) {
+            console.warn('Voice input failed:', error.message);
+            setIsListening(false);
+            setMicStatus('error');
+            setTimeout(() => setMicStatus('idle'), 1200);
+        }
     };
 
     if (!isActive) {
@@ -160,7 +195,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                             <path d="M100 140 L60 80 L20 140 Z" stroke="#1b1c1c" strokeWidth="0.5"></path>
                             <circle cx="100" cy="80" fill="#1b1c1c" r="3"></circle>
                         </svg>
-                        <span className="absolute text-3xl font-display text-primary">{user.emoji}</span>
+                        <img className="absolute w-14 h-14 object-contain opacity-90 mix-blend-multiply" src={getPlantImageSrc(user)} alt={user.plantType || 'Plant companion'} />
                     </div>
                     <div>
                         <h2 className="text-2xl font-display font-bold text-on-surface">
@@ -282,9 +317,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                                 sendManualMessage('custom', inputValue.trim());
                                 setInputValue('');
                                 if (isListening) {
-                                    voiceControllerRef.current?.stop();
-                                    voiceControllerRef.current = null;
-                                    setIsListening(false);
+                                    stopVoiceInput();
                                 }
                             }
                         }}
@@ -299,14 +332,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                             className="flex-1 bg-white/80 border border-outline-variant rounded-full px-5 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-inner"
                             autoComplete="off"
                         />
-                        <button
-                            type="button"
-                            onClick={handleMicClick}
-                            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-sm ${isListening ? 'bg-critical text-white shadow-lg animate-pulse' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
-                            title="Speak to Companion"
-                        >
-                            <Mic className="w-4 h-4" />
-                        </button>
+                        <MicButton status={micStatus} onClick={handleMicClick} title="Speak to Companion" />
                         <button
                             type="submit"
                             disabled={!inputValue.trim()}
@@ -368,8 +394,8 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                 </div>
 
                 <div className="glass-card p-4 bg-white/45 flex gap-3 items-center">
-                    <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/10 shrink-0 flex items-center justify-center text-2xl">
-                        {user.emoji || <span className="material-symbols-outlined text-primary">spa</span>}
+                    <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/10 shrink-0 flex items-center justify-center overflow-hidden p-1.5">
+                        <img className="w-full h-full object-contain mix-blend-multiply" src={getPlantImageSrc(user)} alt={user.plantType || 'Plant companion'} />
                     </div>
                     <div className="min-w-0">
                         <div className="text-[9px] font-bold uppercase tracking-widest text-outline">Sanctuary Details</div>

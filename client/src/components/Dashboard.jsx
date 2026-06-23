@@ -4,7 +4,8 @@ import { io } from 'socket.io-client';
 import MyCompanion from './MyCompanion';
 import RoomFeed from './RoomFeed';
 import VoiceSelector from './VoiceSelector';
-import { LogOut, Mic, Users, Volume2, VolumeX } from 'lucide-react';
+import MicButton from './MicButton';
+import { LogOut, Users, Volume2, VolumeX } from 'lucide-react';
 import {
     speakMessage,
     startVoiceCapture,
@@ -21,6 +22,7 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
     const [roomUsers, setRoomUsers] = useState({});
     const [feed, setFeed] = useState([]);
     const [isListening, setIsListening] = useState(false);
+    const [micStatus, setMicStatus] = useState('idle');
     const [inputValue, setInputValue] = useState('');
     const [isMuted, setIsMuted] = useState(() => {
         const stored = localStorage.getItem(`symbio_group_voice_muted_${roomCode}_v1`);
@@ -52,6 +54,7 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
     const isMutedRef = useRef(isMuted);
     const voicePresetRef = useRef(selectedVoicePreset);
     const mutedCompanionIdsRef = useRef(mutedCompanionIds);
+    const stopMicTimeoutRef = useRef(null);
 
     useEffect(() => {
         isMutedRef.current = isMuted;
@@ -127,6 +130,7 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
         });
 
         return () => {
+            if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
             voiceControllerRef.current?.stop();
             voiceControllerRef.current = null;
             socketRef.current = null;
@@ -151,22 +155,53 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
         voicePresetRef.current = preset;
     };
 
+    const stopVoiceInput = () => {
+        if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
+        setMicStatus('stopping');
+        voiceControllerRef.current?.stop();
+        voiceControllerRef.current = null;
+        setIsListening(false);
+        stopMicTimeoutRef.current = setTimeout(() => setMicStatus('idle'), 260);
+    };
+
     const handleMicClick = async () => {
-        if (isListening) {
-            voiceControllerRef.current?.stop();
-            voiceControllerRef.current = null;
-            setIsListening(false);
+        if (isListening || micStatus === 'starting') {
+            stopVoiceInput();
             return;
         }
 
+        cancelSpeech();
         setInputValue('');
-        voiceControllerRef.current = await startVoiceCapture({
-            socket: socketRef.current,
-            onInterim: (transcript) => setInputValue(transcript),
-            onFinal: (transcript) => setInputValue(transcript),
-            onState: setIsListening,
-            onError: (message) => console.warn('Voice input fallback:', message)
-        });
+        setIsListening(true);
+        setMicStatus('starting');
+
+        try {
+            voiceControllerRef.current = await startVoiceCapture({
+                socket: socketRef.current,
+                onInterim: (transcript) => setInputValue(transcript),
+                onFinal: (transcript) => setInputValue(transcript),
+                onState: (active) => {
+                    setIsListening(active);
+                    setMicStatus(active ? 'listening' : 'idle');
+                },
+                onError: (message) => {
+                    console.warn('Voice input fallback:', message);
+                    setMicStatus('error');
+                    setTimeout(() => setMicStatus('idle'), 1200);
+                }
+            });
+
+            if (!voiceControllerRef.current) {
+                setIsListening(false);
+                setMicStatus('error');
+                setTimeout(() => setMicStatus('idle'), 1200);
+            }
+        } catch (error) {
+            console.warn('Voice input failed:', error.message);
+            setIsListening(false);
+            setMicStatus('error');
+            setTimeout(() => setMicStatus('idle'), 1200);
+        }
     };
 
     const toggleCompanionMute = (memberId) => {
@@ -317,9 +352,7 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
                                 sendManualMessage('custom', inputValue.trim());
                                 setInputValue('');
                                 if (isListening) {
-                                    voiceControllerRef.current?.stop();
-                                    voiceControllerRef.current = null;
-                                    setIsListening(false);
+                                    stopVoiceInput();
                                 }
                             }
                         }}
@@ -334,14 +367,7 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
                             className="flex-1 bg-white/80 border border-outline-variant rounded-full px-5 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-inner"
                             autoComplete="off"
                         />
-                        <button
-                            type="button"
-                            onClick={handleMicClick}
-                            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-sm ${isListening ? 'bg-critical text-white shadow-lg animate-pulse' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
-                            title="Speak to the Room"
-                        >
-                            <Mic className="w-4 h-4" />
-                        </button>
+                        <MicButton status={micStatus} onClick={handleMicClick} title="Speak to the Room" />
                         <button
                             type="submit"
                             disabled={!inputValue.trim()}

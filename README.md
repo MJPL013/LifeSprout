@@ -146,7 +146,7 @@ Update after a new push:
 bash scripts/aws_lifesprout.sh --pull
 ```
 
-For full AWS steps, see `AWS_DEPLOYMENT_GUIDE.md`.
+For the quick operator steps, see `FINAL_AWS_DEPLOYMENT_GUIDE.md`. For the longer AWS explanation, see `AWS_DEPLOYMENT_GUIDE.md`.
 
 ## Git Hygiene
 

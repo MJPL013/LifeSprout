@@ -4,7 +4,7 @@ export const personas = [
         name: 'MONO',
         type: 'Monstera',
         description: 'Social and observant. This companion grows with your connections and thrives on shared light.',
-        emoji: 'ðŸŒ¿',
+        emoji: '',
         bgTheme: 'bg-primary/5',
         textColor: 'text-primary',
         imgUrl: '/monstera.png'
@@ -14,7 +14,7 @@ export const personas = [
         name: 'SPIKE',
         type: 'Cactus',
         description: 'Stoic and resilient. Prefers quiet corners and excels in assisting focused, deep-work sessions.',
-        emoji: 'ðŸŒµ',
+        emoji: '',
         bgTheme: 'bg-tertiary/5',
         textColor: 'text-tertiary',
         imgUrl: '/cactus.png'
@@ -24,7 +24,7 @@ export const personas = [
         name: 'FERN',
         type: 'Fern',
         description: 'Nurturing and sensitive. Highly attuned to your emotional rhythms and air of tranquility.',
-        emoji: 'ðŸŒ¿',
+        emoji: '',
         bgTheme: 'bg-secondary/5',
         textColor: 'text-secondary',
         imgUrl: '/fern.png'
@@ -34,7 +34,7 @@ export const personas = [
         name: 'VINE',
         type: 'Pothos',
         description: 'Versatile and adventurous. Adapts to any digital workflow and loves to explore new sanctuaries.',
-        emoji: 'ðŸŒ±',
+        emoji: '',
         bgTheme: 'bg-primary/5',
         textColor: 'text-primary',
         imgUrl: '/pothos.png'
