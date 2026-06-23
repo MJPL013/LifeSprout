@@ -1,15 +1,30 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import AccessCard from './components/AccessCard';
 import Onboarding from './components/Onboarding';
 import PersonalHub from './components/PersonalHub';
 import Dashboard from './components/Dashboard';
 
-const API_URL = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3001`;
+import { API_URL } from './utils/api';
 const SESSION_KEY = 'symbio_account_v1';
 const ROOM_KEY = 'symbio_room_v2';
 const ROOM_NAME_KEY = 'symbio_room_name_v2';
 const ROOM_META_KEY = 'symbio_room_meta_v2';
 
+async function readApiJson(response, fallbackMessage) {
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  const data = isJson ? await response.json() : null;
+
+  if (!response.ok) {
+    throw new Error(data?.error || fallbackMessage);
+  }
+
+  if (!data) {
+    throw new Error(fallbackMessage);
+  }
+
+  return data;
+}
 function clearRoomStorage() {
   localStorage.removeItem(ROOM_KEY);
   localStorage.removeItem(ROOM_NAME_KEY);
@@ -39,7 +54,7 @@ function App() {
         const response = await fetch(`${API_URL}/api/auth/session/${encodeURIComponent(savedUsername)}`);
         if (!response.ok) throw new Error('Session expired');
 
-        const data = await response.json();
+        const data = await readApiJson(response, 'Oops, I cannot reach the companion server right now.');
         setAccount(data.account);
         setUser(data.user || null);
         setNeedsPlantSetup(Boolean(data.needsPlantSetup));
@@ -83,8 +98,7 @@ function App() {
       body: JSON.stringify({ username: account.username, plantProfile })
     });
 
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Could not save plant companion.');
+    const data = await readApiJson(response, 'Oops, I cannot provision this companion right now.');
 
     setAccount(data.account);
     setUser(data.user);

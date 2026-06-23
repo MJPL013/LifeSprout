@@ -1,6 +1,9 @@
 export function getApiBaseUrl() {
-    const configuredUrl = import.meta.env.VITE_API_URL;
-    if (configuredUrl) return configuredUrl.replace(/\/$/, '');
+    const configuredUrl = import.meta.env.VITE_API_URL?.trim();
+    if (configuredUrl) {
+        const normalizedUrl = configuredUrl.replace(/^\/+(https?:\/\/)/i, '$1');
+        return normalizedUrl.replace(/\/+$/, '');
+    }
 
     const { protocol, hostname, port, origin } = window.location;
     const isViteDevServer = ['5173', '5174', '5175'].includes(port);
