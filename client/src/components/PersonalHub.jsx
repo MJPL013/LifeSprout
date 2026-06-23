@@ -1,30 +1,61 @@
+import { SOCKET_URL } from '../utils/api';
 import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import MyCompanion from './MyCompanion';
 import RoomFeed from './RoomFeed';
-import { LogOut, Users, Plus, Leaf, Mic, Volume2, VolumeX } from 'lucide-react';
+import VoiceSelector from './VoiceSelector';
+import { LogOut, Users, Mic, Volume2, VolumeX } from 'lucide-react';
 import RoomSetup from './RoomSetup';
-import { speakMessage } from '../utils/voice';
+import {
+    speakMessage,
+    startVoiceCapture,
+    setVoiceMuted,
+    getVoiceMuted,
+    cancelSpeech,
+    VOICE_PRESETS,
+    getStoredVoicePreset,
+    storeVoicePreset
+} from '../utils/voice';
 
-const SOCKET_URL = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3001`;
 
 export default function PersonalHub({ user, onJoinRoom, onLogout }) {
-    const [socket, setSocket] = useState(null);
+    const socketRef = useRef(null);
     const [metrics, setMetrics] = useState(null);
     const [feed, setFeed] = useState([]);
-    const [isActive, setIsActive] = useState(false);
+    const [isActive, setIsActive] = useState(true);
     const [showRoomSetup, setShowRoomSetup] = useState(false);
     const [isListening, setIsListening] = useState(false);
     const [inputValue, setInputValue] = useState('');
-    const [isMuted, setIsMuted] = useState(false);
+    const [isMuted, setIsMuted] = useState(() => getVoiceMuted());
+    const [voicePresetId, setVoicePresetId] = useState(() => getStoredVoicePreset(user.userId).id);
+    const [latestBotMessage, setLatestBotMessage] = useState('Direct connection established...');
+    const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+    const selectedVoicePreset = VOICE_PRESETS.find(preset => preset.id === voicePresetId) || getStoredVoicePreset(user.userId);
     const feedEndRef = useRef(null);
+    const voiceControllerRef = useRef(null);
+    const isMutedRef = useRef(isMuted);
+    const voicePresetRef = useRef(selectedVoicePreset);
+    const hasSentGreetingRef = useRef(false);
+
+    useEffect(() => {
+        isMutedRef.current = isMuted;
+        setVoiceMuted(isMuted);
+    }, [isMuted]);
+
+    useEffect(() => {
+        voicePresetRef.current = selectedVoicePreset;
+    }, [selectedVoicePreset]);
 
     useEffect(() => {
         const newSocket = io(SOCKET_URL);
-        setSocket(newSocket);
+        socketRef.current = newSocket;
 
         newSocket.on('connect', () => {
             newSocket.emit('init_user', user);
+            if (!hasSentGreetingRef.current) {
+                hasSentGreetingRef.current = true;
+                newSocket.emit('turn_on_simulation', { userId: user.userId });
+            }
         });
 
         newSocket.on('personal_metrics_update', (data) => {
@@ -33,16 +64,28 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
 
         newSocket.on('new_message', (msg) => {
             setFeed(prev => [...prev, { ...msg, id: Date.now() + Math.random() }]);
-            // V5 Voice: Speak if it's an auto message (bot) and not muted
-            if (msg.type?.startsWith('auto') && !isMuted) {
-                speakMessage(msg.message);
+            // Check if it's a message from the plant to update subtitles
+            if (msg.type?.startsWith('auto') || msg.from?.userId === user.userId) {
+                setLatestBotMessage(msg.message);
+                if (!isMutedRef.current && msg.type?.startsWith('auto')) {
+                    speakMessage(msg.message, {
+                        persona: user.persona,
+                        userId: user.userId,
+                        voicePreset: voicePresetRef.current,
+                        voiceModel: voicePresetRef.current.model
+                    });
+                }
             }
         });
 
         return () => {
+            voiceControllerRef.current?.stop();
+            voiceControllerRef.current = null;
+            socketRef.current = null;
+            cancelSpeech();
             newSocket.disconnect();
         };
-    }, [user, isMuted]);
+    }, [user]);
 
     useEffect(() => {
         feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -50,15 +93,15 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
 
     const handleActivate = () => {
         setIsActive(true);
-        if (socket) {
-            socket.emit('turn_on_simulation', { userId: user.userId });
+        if (socketRef.current) {
+            socketRef.current.emit('turn_on_simulation', { userId: user.userId });
         }
     };
 
     const sendManualMessage = (actionType, text = '') => {
-        if (socket) {
-            socket.emit('send_manual_message', {
-                roomCode: null, // null means personal hub
+        if (socketRef.current) {
+            socketRef.current.emit('send_manual_message', {
+                roomCode: null,
                 fromUserId: user.userId,
                 actionType,
                 text,
@@ -67,63 +110,71 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         }
     };
 
-    const handleMicClick = () => {
-        if (!('webkitSpeechRecognition' in window)) {
-            alert("Your browser does not support the Web Speech API.");
+    const handleMuteToggle = () => {
+        const nextMuted = !isMuted;
+        setIsMuted(nextMuted);
+        setVoiceMuted(nextMuted);
+        if (nextMuted) cancelSpeech();
+    };
+
+    const handleVoicePresetChange = (presetId) => {
+        const preset = storeVoicePreset(user.userId, presetId);
+        setVoicePresetId(preset.id);
+        voicePresetRef.current = preset;
+    };
+
+    const handleMicClick = async () => {
+        if (isListening) {
+            voiceControllerRef.current?.stop();
+            voiceControllerRef.current = null;
+            setIsListening(false);
             return;
         }
 
-        const recognition = new window.webkitSpeechRecognition();
-        recognition.continuous = true; // Stay on while speaking
-        recognition.interimResults = true; // Show live typing
-        recognition.lang = 'en-US';
-
-        recognition.onstart = () => setIsListening(true);
-        recognition.onend = () => setIsListening(false);
-
-        recognition.onresult = (event) => {
-            // Combine all transcript segments to allow flowing sentences
-            let transcript = '';
-            for (let i = 0; i < event.results.length; i++) {
-                transcript += event.results[i][0].transcript;
-            }
-            setInputValue(transcript);
-        };
-
-        if (isListening) {
-            recognition.stop();
-        } else {
-            setInputValue(''); // Clear previous text on start
-            recognition.start();
-        }
+        cancelSpeech();
+        setInputValue('');
+        voiceControllerRef.current = await startVoiceCapture({
+            socket: socketRef.current,
+            onInterim: (transcript) => setInputValue(transcript),
+            onFinal: (transcript) => setInputValue(transcript),
+            onState: setIsListening,
+            onError: (message) => console.warn('Voice input fallback:', message)
+        });
     };
 
     if (!isActive) {
         return (
-            <div className="flex flex-col items-center justify-center h-[80vh] relative overflow-hidden">
+            <div className="flex flex-col items-center justify-center h-[70vh] relative overflow-hidden animate-[fadeIn_1.2s_ease-out]">
                 {/* Decorative background aura */}
-                <div className="absolute inset-0 bg-gradient-radial from-forest-green/10 to-transparent scale-150 animate-pulse" />
+                <div className="absolute inset-0 bg-gradient-radial from-primary/5 to-transparent scale-150 animate-pulse" />
 
-                <div className="z-10 text-center flex flex-col items-center gap-8">
-                    <div className="text-8xl drop-shadow-2xl animate-bounce">
-                        {user.emoji}
+                <div className="z-10 text-center flex flex-col items-center gap-6 max-w-md px-6">
+                    <div className="relative w-32 h-32 flex items-center justify-center">
+                        <svg className="w-full h-full fill-none opacity-20" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M100 20 L140 80 L100 140 L60 80 Z" stroke="#1b1c1c" strokeWidth="0.75"></path>
+                            <path d="M100 20 L180 60 L140 80 Z" stroke="#1b1c1c" strokeWidth="0.5"></path>
+                            <path d="M180 60 L140 80 L180 140 Z" stroke="#1b1c1c" strokeWidth="0.5"></path>
+                            <path d="M100 140 L180 140 L140 80 Z" stroke="#1b1c1c" strokeWidth="0.5"></path>
+                            <path d="M20 60 L100 20 L60 80 Z" stroke="#1b1c1c" strokeWidth="0.5"></path>
+                            <path d="M20 60 L60 80 L20 140 Z" stroke="#1b1c1c" strokeWidth="0.5"></path>
+                            <path d="M100 140 L60 80 L20 140 Z" stroke="#1b1c1c" strokeWidth="0.5"></path>
+                            <circle cx="100" cy="80" fill="#1b1c1c" r="3"></circle>
+                        </svg>
+                        <span className="absolute text-3xl font-display text-primary">{user.emoji}</span>
                     </div>
                     <div>
-                        <h2 className="text-3xl font-light text-forest-green tracking-wide">
+                        <h2 className="text-2xl font-display font-bold text-on-surface">
                             {user.persona} is dormant.
                         </h2>
-                        <p className="text-sage mt-2">Connect to telemetry stream to begin.</p>
+                        <p className="text-xs text-outline mt-1 font-medium">Connect to telemetry stream to awaken companion.</p>
                     </div>
 
                     <button
                         onClick={handleActivate}
-                        className="group relative cursor-pointer outline-none border-none bg-transparent"
+                        className="group relative cursor-pointer px-10 py-4 bg-primary text-white rounded-full font-bold overflow-hidden shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all duration-500"
                     >
-                        <div className="absolute inset-0 bg-forest-green/30 rounded-full blur-xl group-hover:bg-forest-green/50 group-hover:blur-2xl transition-all duration-500" />
-                        <div className="relative bg-forest-green text-white px-12 py-5 rounded-full text-xl font-medium tracking-wide shadow-2xl overflow-hidden border border-white/20">
-                            <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover:animate-[shimmer_2s_infinite]" />
-                            Turn On Simulation
-                        </div>
+                        <span className="relative z-10">Wake Up Simulation</span>
+                        <div className="absolute inset-0 bg-primary-container translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
                     </button>
                 </div>
             </div>
@@ -132,12 +183,13 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
 
     if (showRoomSetup) {
         return (
-            <div className="h-[80vh] flex flex-col">
+            <div className="min-h-[75vh] flex flex-col">
                 <button
                     onClick={() => setShowRoomSetup(false)}
-                    className="text-sage hover:text-forest-green self-start mb-4"
+                    className="text-primary hover:opacity-85 font-bold text-xs flex items-center gap-1 self-start mb-6 cursor-pointer"
                 >
-                    &larr; Back to Personal Hub
+                    <span className="material-symbols-outlined text-sm">arrow_back</span>
+                    Back to Personal Hub
                 </button>
                 <RoomSetup user={user} onJoin={onJoinRoom} />
             </div>
@@ -145,54 +197,84 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     }
 
     return (
-        <div className="flex flex-col md:flex-row gap-6 h-[80vh] animate-[fadeIn_1s_ease-out]">
-            {/* Left Column - My Companion */}
-            <div className="w-full md:w-1/3 flex flex-col gap-4">
-                <div className="glass-card p-4 flex justify-between items-center bg-forest-green/5">
-                    <div className="flex items-center gap-2">
-                        <Leaf className="text-forest-green w-5 h-5" />
-                        <span className="font-semibold text-forest-green tracking-wide">Personal Hub</span>
+        <div className="flex gap-0 h-[calc(100dvh-5.5rem)] md:h-[calc(100vh-6rem)] min-h-0 md:min-h-[640px] w-full relative overflow-hidden animate-[fadeIn_1s_ease-out]">
+            {/* Main Chat Area */}
+            <div className="flex-1 flex flex-col glass-card overflow-hidden border border-white/20 shadow-xl shadow-primary/5 h-full relative z-10">
+                {/* Header */}
+                <div className="bg-white/50 px-4 md:px-6 py-3 md:py-3.5 border-b border-outline-variant/30 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                    <div>
+                        <span className="text-[9px] font-bold text-outline uppercase tracking-widest">Companion Link</span>
+                        <h3 className="font-bold text-on-surface text-base leading-tight truncate">{user.persona}</h3>
                     </div>
-                    <button
-                        onClick={onLogout}
-                        className="text-sage hover:text-critical transition-colors p-1"
-                        title="Log Out"
-                    >
-                        <LogOut className="w-4 h-4" />
-                    </button>
+                    {/* Controls */}
+                    <div className="flex items-center gap-1.5 md:gap-2">
+                        <button
+                            onClick={() => setIsDrawerOpen(true)}
+                            className="flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border cursor-pointer text-primary bg-primary/5 border-primary/20 hover:bg-primary/10"
+                            title="View plant stats"
+                        >
+                            <span className="material-symbols-outlined text-xs">analytics</span>
+                            Stats
+                        </button>
+                        <button
+                            onClick={() => setShowRoomSetup(true)}
+                            className="flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border cursor-pointer text-primary bg-primary/5 border-primary/20 hover:bg-primary/10"
+                            title="Create or join group"
+                        >
+                            <Users className="w-3.5 h-3.5" />
+                            Groups
+                        </button>
+                        <button
+                            onClick={handleMuteToggle}
+                            className={`flex items-center justify-center w-8 h-8 rounded-full text-[10px] font-bold uppercase transition-all border cursor-pointer ${isMuted ? 'text-critical bg-error-container/10 border-error/20' : 'text-primary bg-primary/5 border-primary/20'}`}
+                            title={isMuted ? 'Unmute voice' : 'Mute voice'}
+                        >
+                            {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                        </button>
+                    </div>
                 </div>
 
-                <MyCompanion user={user} metrics={metrics} />
-
-                {/* Join Groups Card */}
-                <div className="glass-card p-5 bg-gradient-to-br from-white to-sage/5">
-                    <h3 className="text-sm font-semibold text-forest-green mb-1">Multiplayer Mode</h3>
-                    <p className="text-xs text-sage mb-4">Connect {user.persona} with other plants.</p>
-
-                    <button
-                        onClick={() => setShowRoomSetup(true)}
-                        className="w-full bg-forest-green/10 text-forest-green border border-forest-green/20 hover:bg-forest-green hover:text-white transition-colors py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
-                    >
-                        <Users className="w-4 h-4" />
-                        Join or Create Room
-                    </button>
-                </div>
-            </div>
-
-            {/* Right Column - Personal Chat */}
-            <div className="w-full md:w-2/3 flex flex-col glass-card overflow-hidden border-forest-green/20 shadow-xl shadow-forest-green/5">
-                <div className="bg-white/80 px-6 py-4 border-b border-sage/20 flex flex-col">
-                    <span className="text-xs text-sage uppercase tracking-wider font-semibold">Secure Connection</span>
-                    <h2 className="font-semibold text-forest-green text-lg">Direct Neural Link: {user.persona}</h2>
+                {/* Subtitles Overlay */}
+                <div className="bg-primary/5 py-2 px-6 border-b border-outline-variant/20 min-h-[48px] flex items-center justify-center text-center">
+                    <p className="font-display text-xs text-primary leading-snug italic opacity-85">
+                        "{latestBotMessage}"
+                    </p>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-parchment/50 to-white/50">
+                {/* Scroll Feed */}
+                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4 bg-white/20">
                     <RoomFeed feed={feed} user={user} />
                     <div ref={feedEndRef} />
                 </div>
 
-                {/* Chat Input */}
-                <div className="p-4 border-t border-sage/20 bg-white">
+                {/* Input Bar */}
+                <div className="shrink-0 p-3 md:p-4 border-t border-outline-variant/30 bg-white/90 md:bg-white/50 backdrop-blur-md space-y-2 md:space-y-3">
+                    {/* Quick Actions Tray */}
+                    <div className="flex items-center justify-center gap-3 md:gap-4 pb-1 overflow-x-auto no-scrollbar whitespace-nowrap">
+                        <button
+                            onClick={() => sendManualMessage('joke', 'Tell me a joke')}
+                            className="flex items-center gap-1 text-[10px] font-bold text-outline hover:text-primary transition-colors cursor-pointer"
+                        >
+                            <span className="material-symbols-outlined text-xs">mood</span>
+                            Joke
+                        </button>
+                        <span className="text-outline-variant/30 text-xs">/</span>
+                        <button
+                            onClick={() => sendManualMessage('check_status', 'Status report')}
+                            className="flex items-center gap-1 text-[10px] font-bold text-outline hover:text-primary transition-colors cursor-pointer"
+                        >
+                            <span className="material-symbols-outlined text-xs">favorite</span>
+                            Status
+                        </button>
+                        <span className="text-outline-variant/30 text-xs">/</span>
+                        <button
+                            onClick={() => sendManualMessage('cheer', 'Give me a fun fact')}
+                            className="flex items-center gap-1 text-[10px] font-bold text-outline hover:text-primary transition-colors cursor-pointer"
+                        >
+                            <span className="material-symbols-outlined text-xs">auto_awesome</span>
+                            Fun Fact
+                        </button>
+                    </div>
                     <form
                         onSubmit={(e) => {
                             e.preventDefault();
@@ -200,56 +282,126 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                                 sendManualMessage('custom', inputValue.trim());
                                 setInputValue('');
                                 if (isListening) {
-                                    // Stop hearing our own plant if we just sent something manually
+                                    voiceControllerRef.current?.stop();
+                                    voiceControllerRef.current = null;
                                     setIsListening(false);
                                 }
                             }
                         }}
-                        className="flex gap-2"
+                        className="flex gap-2 items-center"
                     >
                         <input
                             name="message"
                             type="text"
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
-                            placeholder="Message your companion..."
-                            className="flex-1 bg-parchment border border-sage/30 rounded-full px-5 py-3 focus:outline-none focus:ring-2 focus:ring-forest-green/60 shadow-inner"
+                            placeholder={`Whisper to your ${user.plantType}...`}
+                            className="flex-1 bg-white/80 border border-outline-variant rounded-full px-5 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-inner"
                             autoComplete="off"
                         />
                         <button
                             type="button"
                             onClick={handleMicClick}
-                            className={`px-4 py-2 rounded-full transition-colors flex items-center justify-center ${isListening ? 'bg-critical text-white shadow-lg animate-pulse' : 'bg-sage/20 text-forest-green hover:bg-sage/40'}`}
+                            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-sm ${isListening ? 'bg-critical text-white shadow-lg animate-pulse' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
                             title="Speak to Companion"
                         >
-                            <Mic className="w-5 h-5" />
+                            <Mic className="w-4 h-4" />
                         </button>
                         <button
                             type="submit"
-                            className="bg-forest-green text-white px-6 py-2 rounded-full font-medium hover:bg-forest-green/90 transition-colors shadow-md hover:shadow-lg"
+                            disabled={!inputValue.trim()}
+                            className="bg-primary text-white w-10 h-10 rounded-full flex items-center justify-center shadow-md hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
                         >
-                            Send
+                            <span className="material-symbols-outlined text-sm">arrow_upward</span>
                         </button>
                     </form>
 
-                    {/* Quick Actions Miniature */}
-                    <div className="flex gap-3 justify-center items-center mt-3">
-                        <button type="button" onClick={() => sendManualMessage('joke', 'tell me a joke')} className="text-xs text-sage hover:text-forest-green">😂 Joke</button>
-                        <span className="text-sage/30">•</span>
-                        <button type="button" onClick={() => sendManualMessage('check_status', 'status report')} className="text-xs text-sage hover:text-forest-green">💚 Status</button>
-                        <span className="text-sage/30">•</span>
-                        <button type="button" onClick={() => sendManualMessage('cheer', 'give me a fun fact')} className="text-xs text-sage hover:text-forest-green">🌟 Fun Fact</button>
-                        <span className="text-sage/30 mx-2">|</span>
 
-                        <button
-                            type="button"
-                            onClick={() => setIsMuted(!isMuted)}
-                            className={`flex items-center gap-1 text-xs transition-colors ${isMuted ? 'text-critical' : 'text-sage hover:text-forest-green'}`}
-                        >
-                            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                            {isMuted ? 'Muted' : 'Unmuted'}
-                        </button>
+                </div>
+            </div>
+
+            {isDrawerOpen && (
+                <div
+                    className="fixed md:hidden inset-0 z-40 bg-black/20 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]"
+                    onClick={() => setIsDrawerOpen(false)}
+                />
+            )}
+
+            {/* Sidebar Drawer */}
+            <div className={`
+                fixed md:relative inset-x-0 bottom-0 top-auto md:inset-auto md:top-0 md:right-0 max-h-[78dvh] md:max-h-none md:h-full z-50 md:z-auto
+                w-full md:w-80 bg-background/98 md:bg-white/30 backdrop-blur-2xl md:backdrop-blur-none
+                rounded-t-[2rem] md:rounded-none border-t md:border-t-0 md:border-l border-outline-variant/20 p-5 md:p-0 md:pl-6
+                transition-transform duration-300 ease-in-out flex flex-col gap-4 md:gap-6 overflow-y-auto shadow-2xl md:shadow-none
+                ${isDrawerOpen ? 'translate-y-0 md:translate-x-0 md:block' : 'translate-y-full md:translate-y-0 md:translate-x-full md:hidden'}
+            `}>
+
+                <button
+                    onClick={() => setIsDrawerOpen(false)}
+                    className="hidden md:flex items-center justify-center gap-1.5 w-full bg-white/60 border border-outline-variant/30 text-outline hover:text-primary hover:border-primary/30 rounded-full py-2 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                    title="Hide device info"
+                >
+                    <span className="material-symbols-outlined text-sm">dock_to_right</span>
+                    Hide device info
+                </button>
+                {/* Mobile close button */}
+                <div className="flex justify-between items-center md:hidden pb-3 border-b border-outline-variant/20">
+                    <span className="font-bold text-xs uppercase tracking-widest text-primary">Sanctuary Details</span>
+                    <button onClick={() => setIsDrawerOpen(false)} className="text-outline hover:text-on-surface cursor-pointer">
+                        <span className="material-symbols-outlined text-base">close</span>
+                    </button>
+                </div>
+
+                {/* Personal Hub Header */}
+                <div className="glass-card p-4 hidden md:flex justify-between items-center bg-white/40">
+                    <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-primary text-xl">spa</span>
+                        <span className="font-bold font-display text-sm text-primary tracking-wide">Personal Hub</span>
                     </div>
+                    <button
+                        onClick={onLogout}
+                        className="text-outline hover:text-critical transition-colors p-1 cursor-pointer"
+                        title="Log Out"
+                    >
+                        <LogOut className="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div className="glass-card p-4 bg-white/45 flex gap-3 items-center">
+                    <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/10 shrink-0 flex items-center justify-center text-2xl">
+                        {user.emoji || <span className="material-symbols-outlined text-primary">spa</span>}
+                    </div>
+                    <div className="min-w-0">
+                        <div className="text-[9px] font-bold uppercase tracking-widest text-outline">Sanctuary Details</div>
+                        <h4 className="font-display text-sm font-bold text-primary truncate">{user.deviceName || `${user.persona} device`}</h4>
+                        <p className="text-[10px] text-on-surface-variant leading-snug max-h-8 overflow-hidden">
+                            {user.name}'s {user.plantType} companion with a stable telemetry stream.
+                        </p>
+                        <div className="text-[9px] uppercase tracking-wider text-outline font-bold mt-1">
+                            Voice {selectedVoicePreset.label} - {metrics?.mood || 'Stable'}
+                        </div>
+                    </div>
+                </div>
+
+                <MyCompanion user={user} metrics={metrics} />
+
+                <VoiceSelector value={voicePresetId} onChange={handleVoicePresetChange} />
+
+                {/* Join Groups Card */}
+                <div className="glass-card p-5 bg-white/40 hidden md:flex flex-col justify-between mb-4">
+                    <div>
+                        <h4 className="text-sm font-bold text-on-surface">Multiplayer Greenhouse</h4>
+                        <p className="text-[11px] text-on-surface-variant mt-0.5 leading-relaxed">
+                            Connect {user.persona} in shared rooms to interact with other gardeners.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => setShowRoomSetup(true)}
+                        className="w-full bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white transition-all py-2 rounded-full text-xs font-bold flex items-center justify-center gap-1.5 mt-4 cursor-pointer"
+                    >
+                        <Users className="w-3.5 h-3.5" />
+                        Greenhouse Lobby
+                    </button>
                 </div>
             </div>
         </div>

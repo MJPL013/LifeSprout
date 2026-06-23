@@ -1,0 +1,38 @@
+# Runtime secrets
+.env
+*.env.local
+server/.env
+
+# Dependencies
+node_modules/
+server/node_modules/
+client/node_modules/
+
+# Build output
+client/dist/
+client/dist-ssr/
+dist/
+
+# Logs
+*.log
+logs/
+server/server.log
+server/server.err.log
+
+# Local runtime data
+server/data/accounts.json
+server/data/rooms.json
+server/data/voice-previews/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local prompt/reference dumps not for deployment
+UI_files
+SYMBIOTIC COMPANION SYSTEM.txt
+SYMBIOTIC_WEB_SIMULATION_PROMPT.md
+.agents/
+.codex/

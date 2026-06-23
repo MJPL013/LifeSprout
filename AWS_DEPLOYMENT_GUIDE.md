@@ -1,159 +1,227 @@
-# AWS Deployment Guide for Plant Bro
+# LifeSprout AWS Deployment Guide
 
-This guide provides step-by-step instructions on how to deploy the Plant Bro application to an AWS EC2 instance, configure your environment variables (API keys), and ensure the application runs continuously.
+Repository: https://github.com/MJPL013/LifeSprout.git
 
-## 1. Selecting and Launching an AWS Instance
+This guide deploys LifeSprout on a single AWS EC2 Linux instance for MVP testing. The deployment uses one Node/Express process for the API, Socket.IO, Deepgram routes, and the built React frontend. nginx exposes a stable public HTTP URL on port 80, and PM2 keeps the app alive after you close the terminal.
 
-1. Log in to your [AWS Management Console](https://aws.amazon.com/console/).
-2. Navigate to the **EC2 Dashboard** and click **Launch Instance**.
-3. **Name your instance:** Give it a recognizable name (e.g., `PlantBro-Server`).
-4. **Choose an Amazon Machine Image (AMI):** Select **Ubuntu Server 24.04 LTS** (or 22.04 LTS). It's widely used, free-tier eligible, and easy to configure.
-5. **Choose an Instance Type:** 
-   - Select **t2.micro** or **t3.micro**. These are eligible for the AWS Free Tier and should be sufficient for running a basic web application.
-6. **Key Pair (Login):**
-   - Click **Create new key pair**.
-   - Give it a name (e.g., `plantbro-key`).
-   - Keep the default settings (RSA, .pem).
-   - Click **Create key pair**. **Important:** Download this `.pem` file and keep it safe; you will need it to connect to your server.
-7. **Network Settings:**
-   - Check **Allow SSH traffic from** (Anywhere or your IP).
-   - Check **Allow HTTP traffic from the internet**.
-   - Check **Allow HTTPS traffic from the internet**.
-8. **Configure Storage:** The default 8GB is usually fine, but you can increase it up to 30GB within the free tier if needed.
-9. Click **Launch Instance**.
+## Deployment Model
 
-## 2. Connecting to Your Instance
+LifeSprout has two development pieces locally:
 
-1. Go to your EC2 Instances list and select your new instance. Copy its **Public IPv4 address**.
-2. Open your terminal (or PowerShell/Command Prompt on Windows).
-3. Navigate to the folder where you downloaded your `.pem` key file.
-4. Set the correct permissions for your key so only you can read it (AWS requires this):
-   - **For Mac/Linux:**
-     ```bash
-     chmod 400 plantbro-key.pem
-     ```
-   - **For Windows (PowerShell):**
-     Run these commands one by one to remove inherited permissions and grant read access only to your user:
-     ```powershell
-     icacls.exe plantbro-key.pem /reset
-     icacls.exe plantbro-key.pem /grant:r "$($env:username):(r)"
-     icacls.exe plantbro-key.pem /inheritance:r
-     ```
-5. Connect to the instance via SSH:
-   ```bash
-   ssh -i "plantbro-key.pem" ubuntu@<YOUR_EC2_PUBLIC_IP>
-   ```
+- `server/`: Node.js, Express, Socket.IO, JSON runtime stores, CSV telemetry, LLM and Deepgram routes.
+- `client/`: React/Vite frontend.
 
-## 3. Preparing the Server Environment
+On AWS, the script builds `client/dist`, then `server/index.js` serves that built frontend. So AWS runs one PM2 process called `lifesprout` by default. nginx maps public traffic from port `80` to the Node app on internal port `3001`.
 
-Once connected to your Ubuntu server, update its packages and install Node.js and Git:
+Default public URL:
 
-```bash
-# Update package list
-sudo apt update && sudo apt upgrade -y
-
-# Install Node.js and npm (using NodeSource setup for version 20 LTS)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Verify installation
-node -v
-npm -v
-
-# Install Git
-sudo apt install git -y
+```text
+http://<YOUR_EC2_PUBLIC_IP>/
 ```
 
-## 4. Uploading Your Code to the Server
+No public Vite port is required in this deployment path.
 
-The best way to get your code onto the server is by using Git. 
+## Recommended AWS Shape
 
-1. From your local machine, push your `Plant_bro` project to a repository on GitHub (it can be private).
-2. On your EC2 instance, clone your repository:
-   ```bash
-   git clone <YOUR_GITHUB_REPO_URL>
-   cd Plant_bro
-   ```
-   *(If your repo is private, you might need to generate an SSH key on the Ubuntu server using `ssh-keygen` and add it to your GitHub account).*
+- AMI: Ubuntu Server 22.04 LTS or 24.04 LTS.
+- Instance size: `t2.micro` or `t3.micro` for a small MVP demo.
+- Storage: default 8 GB works, but 16-30 GB is more comfortable for Node modules and logs.
+- Security group inbound rules:
+  - SSH `22` from your IP, or use EC2 Instance Connect.
+  - HTTP `80` from `0.0.0.0/0`.
+  - HTTPS `443` only if you later add TLS.
+- You do not need to expose `5173`.
+- You do not need to expose `3001` unless you run the script with `--no-nginx`.
 
-## 5. Setting Up the Environment and API Keys
+## Runtime Persistence
 
-You need to place your API keys on the server securely. **Do not** upload your local `.env` file to GitHub.
+Accounts and groups are MVP JSON files under `server/data` on the EC2 disk:
 
-1. Navigate to your server folder:
-   ```bash
-   cd server
-   ```
-2. Create a new `.env` file using the nano text editor:
-   ```bash
-   nano .env
-   ```
-3. Paste all your required environment variables into this file. It should look just like your local file:
-   ```env
-   PORT=3000
-   YOUR_API_KEY=your_actual_api_key_here
-   # Add any other keys you need here
-   ```
-4. Press `Ctrl + O` to save, `Enter` to confirm, and `Ctrl + X` to exit the nano editor.
-5. Install backend dependencies:
-   ```bash
-   npm install
-   ```
-6. Complete the same process for your frontend if it requires a `.env` file for API base URLs:
-   ```bash
-   cd ../client
-   nano .env
-   npm install
-   ```
+- `server/data/accounts.json`
+- `server/data/rooms.json`
 
-## 6. Running the App Continuously (Using PM2)
+This is fine for single-instance AWS testing. It is not a production database. Normal PM2 restarts, rebuilds, and script reruns should preserve these files. Instance deletion, disk replacement, or a fresh clone will not preserve them unless you back them up or move storage to a database/EBS-backed plan.
 
-To keep your application running round-the-clock even when you close your SSH terminal, use **PM2**, a production process manager for Node.js.
+## Environment Variables
 
-1. Install PM2 globally:
-   ```bash
-   sudo npm install -g pm2
-   ```
+Do not commit `server/.env`. The deployment script creates `server/.env` from `server/.env.template` if it does not already exist.
 
-2. **Start the Backend:**
-   ```bash
-   cd ~/Plant_bro/server
-   pm2 start index.js --name "plantbro-backend"
-   ```
+After the first script run, edit it from the repo root:
 
-3. **Start the Frontend:**
-   *Note: For production, it's highly recommended to build the React app (`npm run build`) and serve static files. However, to run exactly what you have locally:*
-   ```bash
-   cd ~/Plant_bro/client
-   pm2 start "npm run dev -- --host" --name "plantbro-frontend"
-   ```
+```bash
+nano server/.env
+pm2 restart lifesprout --update-env
+```
 
-4. **Ensure PM2 restarts on server reboot:**
-   ```bash
-   pm2 startup
-   ```
-   *PM2 will format a specific command in the terminal output that you need to copy and paste to run. Run it.*
-   Then save the current PM2 list:
-   ```bash
-   pm2 save
-   ```
+Recommended EC2 `.env` shape:
 
-## 7. Opening Custom Ports (AWS Security Groups)
+```env
+GEMINI_API_KEY=your_gemini_key_here
+DEEPGRAM_API_KEY=your_deepgram_key_here
+USE_OLLAMA=false
+DEEPGRAM_TTS_MODEL=aura-2-thalia-en
+DEEPGRAM_STT_MODEL=nova-3
+VOICE_PROVIDER=deepgram
+PORT=3001
+TICK_INTERVAL_MS=5000
+```
 
-If your backend is running on port `3000` and your frontend on `5173`, AWS blocks these ports by default. You must allow them.
+For EC2 cloud testing, keep `USE_OLLAMA=false` unless you install and run Ollama on the instance.
 
-1. Go back to your AWS EC2 console, select your instance.
-2. Click the **Security** tab in the bottom panel, then click on the active security group link (e.g., `sg-0abcd1234`).
-3. Click **Edit inbound rules**.
-4. Click **Add rule**:
-   - Type: **Custom TCP**
-   - Port range: **3000**
-   - Source: **Anywhere-IPv4** (0.0.0.0/0)
-5. Click **Add rule** again:
-   - Type: **Custom TCP**
-   - Port range: **5173** (or whatever port your Vite frontend outputs)
-   - Source: **Anywhere-IPv4** (0.0.0.0/0)
-6. Click **Save rules**.
+## First-Time EC2 Setup
 
-You should now be able to view your fully running app by visiting: 
-`http://<YOUR_EC2_PUBLIC_IP>:5173`
+1. Launch an Ubuntu EC2 instance.
+2. Connect using EC2 Instance Connect or SSH.
+3. Clone the repository:
+
+```bash
+git clone https://github.com/MJPL013/LifeSprout.git LifeSprout
+cd LifeSprout
+```
+
+4. Run the single deployment script:
+
+```bash
+bash scripts/aws_lifesprout.sh
+```
+
+The script is repo-relative. It figures out the repo root from its own location, so it does not care where you cloned the project.
+
+The script will:
+
+- install system packages when missing: Node.js, npm, git, build tools, nginx;
+- install PM2 globally when missing;
+- create `server/.env` from the template if needed;
+- run `npm ci` in `server` and `client`;
+- build the React client with Vite;
+- start or restart `server/index.js` under PM2;
+- configure nginx from public port `80` to internal Node port `3001`;
+- save PM2 so the app survives terminal close and reboot;
+- print the app URL.
+
+## Updating After New Code Is Pushed
+
+From the EC2 repo root:
+
+```bash
+bash scripts/aws_lifesprout.sh --pull
+```
+
+That pulls the latest code, installs dependencies, rebuilds the client, restarts PM2, refreshes nginx config, and prints the URL again.
+
+## Script Options
+
+```bash
+bash scripts/aws_lifesprout.sh --help
+```
+
+Common options:
+
+```bash
+# Pull latest code before deploying
+bash scripts/aws_lifesprout.sh --pull
+
+# Skip nginx and serve directly on the Node port
+bash scripts/aws_lifesprout.sh --no-nginx
+
+# Skip apt/yum/dnf installation if the machine is already prepared
+bash scripts/aws_lifesprout.sh --skip-system
+```
+
+Useful environment overrides:
+
+```bash
+APP_NAME=lifesprout-demo SERVER_PORT=3001 PUBLIC_PORT=80 bash scripts/aws_lifesprout.sh
+```
+
+## Stable URL Behavior
+
+With the default nginx setup, use:
+
+```text
+http://<YOUR_EC2_PUBLIC_IP>/
+```
+
+The app should stay available after the terminal is closed because PM2 runs the Node server in the background. nginx receives browser traffic on port 80 and proxies it to the Node app on port 3001.
+
+If you choose not to use nginx:
+
+```bash
+bash scripts/aws_lifesprout.sh --no-nginx
+```
+
+Then open port `3001` in the security group and use:
+
+```text
+http://<YOUR_EC2_PUBLIC_IP>:3001/
+```
+
+## Useful Commands
+
+Run these from anywhere on the EC2 instance:
+
+```bash
+pm2 status
+pm2 logs lifesprout
+pm2 restart lifesprout --update-env
+pm2 save
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+Run these from the repo root:
+
+```bash
+nano server/.env
+bash scripts/aws_lifesprout.sh --pull
+```
+
+## Common Issues
+
+### The URL Does Not Open
+
+Check the EC2 security group allows inbound HTTP port `80`. Then run:
+
+```bash
+pm2 status
+sudo systemctl status nginx --no-pager
+sudo nginx -t
+```
+
+### Login Or Group Creation Loses Data After Redeploy
+
+The JSON files are local runtime data. They should survive normal PM2 restarts and rebuilds, but not instance replacement or manual deletion.
+
+### Deepgram Or LLM Voice Does Not Work
+
+Check `server/.env` has real keys and restart:
+
+```bash
+pm2 restart lifesprout --update-env
+```
+
+The UI should show friendly fallback messages instead of raw API errors.
+
+### Browser Blocks Microphone Or Voice
+
+Raw HTTP on an EC2 IP is acceptable for quick testing, but browsers are stricter with microphone permissions. For a stronger demo, attach a domain and HTTPS certificate later.
+
+### The Script Fails On npm ci
+
+Make sure `package-lock.json` is committed for both `server` and `client`. If dependency lock files change, commit and push them before running `--pull` on EC2.
+
+## Files That Should Not Be Pushed
+
+The root `.gitignore` excludes local/runtime material:
+
+- `server/.env`
+- `server/node_modules/`
+- `client/node_modules/`
+- `server/data/accounts.json`
+- `server/data/rooms.json`
+- `UI_files`
+- `.agents/`
+- `.codex/`
+- old system prompt/reference files
+
+If any of these were previously tracked, commit their removal from git. The local files can remain on your machine.

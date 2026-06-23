@@ -3,42 +3,40 @@ export const personas = [
         id: 'monstera',
         name: 'MONO',
         type: 'Monstera',
-        description: 'Wise, grounded, slow to react. Dry wit, philosophical.',
-        emoji: '🌿',
+        description: 'Social and observant. This companion grows with your connections and thrives on shared light.',
+        emoji: 'ðŸŒ¿',
+        bgTheme: 'bg-primary/5',
+        textColor: 'text-primary',
+        imgUrl: '/monstera.png'
     },
     {
         id: 'cactus',
         name: 'SPIKE',
         type: 'Cactus',
-        description: 'Blunt, resilient, independent. Sarcastic, punchy.',
-        emoji: '🌵',
+        description: 'Stoic and resilient. Prefers quiet corners and excels in assisting focused, deep-work sessions.',
+        emoji: 'ðŸŒµ',
+        bgTheme: 'bg-tertiary/5',
+        textColor: 'text-tertiary',
+        imgUrl: '/cactus.png'
     },
     {
         id: 'fern',
         name: 'FERN',
         type: 'Fern',
-        description: 'Gentle, empathetic, nurturing. Warm puns, soft humor.',
-        emoji: '🌿', // using same emoji for simplicity
+        description: 'Nurturing and sensitive. Highly attuned to your emotional rhythms and air of tranquility.',
+        emoji: 'ðŸŒ¿',
+        bgTheme: 'bg-secondary/5',
+        textColor: 'text-secondary',
+        imgUrl: '/fern.png'
     },
     {
-        id: 'bamboo',
-        name: 'BŌ',
-        type: 'Bamboo',
-        description: 'Disciplined, energetic, loyal. Clean jokes, motivational.',
-        emoji: '🎋',
-    },
-    {
-        id: 'succulent',
-        name: 'SUCCI',
-        type: 'Succulent',
-        description: 'Cheerful, low-maintenance vibe. Self-deprecating.',
-        emoji: '🌱',
-    },
-    {
-        id: 'lily',
-        name: 'LILY',
-        type: 'Peace Lily',
-        description: 'Calm, introspective, poetic. Metaphorical, dreamy.',
-        emoji: '💮',
+        id: 'pothos',
+        name: 'VINE',
+        type: 'Pothos',
+        description: 'Versatile and adventurous. Adapts to any digital workflow and loves to explore new sanctuaries.',
+        emoji: 'ðŸŒ±',
+        bgTheme: 'bg-primary/5',
+        textColor: 'text-primary',
+        imgUrl: '/pothos.png'
     }
 ];

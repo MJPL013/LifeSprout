@@ -1,22 +1,27 @@
 {
-  "name": "server",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "dependencies": {
-    "@google/genai": "^1.42.0",
-    "axios": "^1.13.5",
-    "cors": "^2.8.6",
-    "csv-parser": "^3.2.0",
-    "dotenv": "^17.3.1",
-    "express": "^5.2.1",
-    "socket.io": "^4.8.3"
-  }
+    "name":  "server",
+    "version":  "1.0.0",
+    "description":  "",
+    "main":  "index.js",
+    "scripts":  {
+                    "test":  "echo \"Error: no test specified\" \u0026\u0026 exit 1",
+                    "voices:previews":  "node scripts/generateVoicePreviews.js",
+                    "start":  "node index.js"
+                },
+    "keywords":  [
+
+                 ],
+    "author":  "",
+    "license":  "ISC",
+    "type":  "commonjs",
+    "dependencies":  {
+                         "@deepgram/sdk":  "^5.4.0",
+                         "@google/genai":  "^1.42.0",
+                         "axios":  "^1.13.5",
+                         "cors":  "^2.8.6",
+                         "csv-parser":  "^3.2.0",
+                         "dotenv":  "^17.3.1",
+                         "express":  "^5.2.1",
+                         "socket.io":  "^4.8.3"
+                     }
 }

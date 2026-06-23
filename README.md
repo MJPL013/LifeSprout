@@ -1,79 +1,165 @@
-# LifeSprout 🌱
+# LifeSprout
 
-**LifeSprout** is an immersive, multiplayer "Symbiotic Companion" web application. It allows users to adopt AI-powered virtual botanical companions, monitor their real-time simulated telemetry, and interact with them in a shared multiplayer environment.
+Repository: https://github.com/MJPL013/LifeSprout.git
 
-## 🚀 What We Are Doing
-The goal of LifeSprout is to bridge the gap between AI personas and live, streaming data. Instead of just "chatting" with an LLM, your companion is tied to a backend simulation engine. If your plant's "soil moisture" drops or its "sunlight" spikes, the AI dynamically reacts to those environmental triggers.
+LifeSprout is an MVP IoT plant companion app. It simulates a connected plant device, streams telemetry from preset CSV datasets, stores lightweight account and plant setup data, and lets users talk with their plant companion through chat and voice.
 
-We are currently building out **V6** of the application, focusing on:
-1. **True Conversational UX:** A WhatsApp-style chatting interface that differentiates human messages from bot responses.
-2. **Group Dynamics:** Real-time multiplayer rooms where users can see exactly who is connected and the live "mood" of everyone else's plant.
-3. **Local LLM Integration:** Full support for running **Ollama (Llama 3.2)** locally to ensure privacy and eliminate cloud API costs.
-4. **Voice Interactivity:** Hands-free interaction via the browser's Web Speech API. You can dictate messages to your plant using your microphone, and the plant will respond out loud using a custom, high-pitched Text-to-Speech (TTS) voice.
+The important product idea is not fake randomness. Each account owns a stable simulated device stream. The LLM answers as a companion using the user's plant persona plus live telemetry stats such as moisture, sunlight, temperature, soil vitality, mood, and events.
 
----
+## Product Flow
 
-## 🏗️ Project Architecture & Subsystems
+1. A user opens the app and sees a companion device access card.
+2. They create an MVP account or log in with a username and password.
+3. First-time users set up one plant companion.
+4. Returning users recover the same account, plant profile, persona, and stable simulated device stream.
+5. The personal hub shows direct plant chat, telemetry, voice controls, and group entry.
+6. Users can create or join public group sanctuaries where both gardener and plant companion participate in group chat.
 
-LifeSprout is split into a robust Node.js/Express backend and a modern React/Vite frontend.
+## What It Does
 
-### 1. The Simulation Engine (`server/plantSim.js`)
-Rather than relying purely on random numbers, the backend streams actual telemetry data from CSV datasets representing different plant life-cycles. 
-- The simulation runs on a global tick (e.g., every 5 seconds).
-- It reads rows for Moisture, Sunlight, Temperature, and Soil Health.
-- It calculates a "Mood" (Thriving, Stable, Anxious, Critical) and emits WebSocket updates (`plant_metrics_update`) to all connected clients.
+- Simple access-card flow with create account and login.
+- One plant companion per account for this MVP.
+- Stable `userId` per username, so returning users recover the same plant and telemetry assignment.
+- Simulated IoT telemetry from three preset CSV streams in `server/plant_sim_1.csv`, `server/plant_sim_2.csv`, and `server/plant_sim_3.csv`.
+- Personal plant chat with quick actions, mic input, voice output, and telemetry stats.
+- Public group sanctuaries where users and their plants can join shared group chat rooms.
+- Group creation with name, description, and photo.
+- Deepgram text-to-speech and speech-to-text when configured, with browser/local fallback behavior.
+- Saved voice preview files in `client/public/voice-previews` so the demo can preview voices without calling the API every time.
+- One-process AWS deployment: the backend serves API routes, Socket.IO, voice routes, and the built frontend.
 
-### 2. The AI Brain (`server/aiProxy.js`)
-When users chat with their plant, or when a critical telemetry event occurs, the server prompts an LLM.
-- **Primary:** Looks for a local Ollama instance (`USE_OLLAMA=true`).
-- **Fallbacks:** Can gracefully fall back to Google Gemini or DeepSeek Cloud APIs if configured.
-- **Cross-Talk:** In multiplayer rooms, if one user's plant experiences a critical drop in water, it can autonomously generate an AI message and send it to the group chat alerting the other users.
+## Account And CSV Behavior
 
-### 3. The Frontend Client (`client/`)
-Built with React, Tailwind CSS, and Framer Motion.
-- **Personal Hub:** A 1-on-1 private interface where users can bond with their newly adopted plant and monitor its telemetry gauges.
-- **Group Dashboard:** A shared WebSocket room (`RoomFeed.jsx`) where multiple users can chat.
-- **Voice UI:** Implements `window.webkitSpeechRecognition` for live microphone transcription and `window.speechSynthesis` for vocal AI replies.
+Accounts are stored in `server/data/accounts.json` at runtime. The `userId` is deterministic from the normalized username. That stable `userId` is passed to `plantSim.assignSimulationId(userId)`, which maps the account to one of the three preset CSV streams.
 
----
+This means:
 
-## 🛠️ How to Run Locally
+- a returning user gets the same simulated CSV stream assignment;
+- the app does not generate a fresh CSV per login;
+- users are distributed across the three preset streams;
+- multiple accounts can share the same preset stream because there are only three streams.
 
-### Prerequisites
-1. **Node.js** (v18+)
-2. **Ollama** (Optional, but recommended for local AI) - [Download Here](https://ollama.com/)
+## Current MVP Limits
 
-### Step 1: Start the Local LLM (Optional)
-Open a terminal and run the 3 Billion parameter Llama 3 model:
+- This is not production authentication. Passwords use a lightweight hash only to distinguish demo users.
+- Accounts and groups are stored as JSON files under `server/data`. This is okay for a single AWS instance demo, but not for autoscaling or permanent production storage.
+- There is no hard account cap in code. The practical limit is the JSON file size and single-server memory/filesystem behavior.
+- There are only three CSV telemetry streams, so different users can share the same underlying preset stream.
+- If the AWS instance is replaced or its disk is reset, JSON account/group data can be lost unless you back it up or move storage to a database.
+- HTTP on a raw EC2 IP is fine for quick testing, but browser microphone behavior is more reliable on HTTPS with a domain.
+
+## Architecture
+
+### Backend: `server/`
+
+- `index.js`: Express API, Socket.IO realtime events, Deepgram STT sockets, TTS routes, group room events, and static client serving for AWS builds.
+- `accountStore.js`: MVP account store in `server/data/accounts.json`.
+- `roomStore.js`: Group sanctuary store in `server/data/rooms.json`.
+- `plantSim.js`: Loads the three CSV telemetry streams and deterministically maps stable user IDs to one stream.
+- `aiProxy.js`: Uses local Ollama when enabled, then cloud fallbacks when configured.
+- `deepgramVoice.js`: Deepgram TTS integration.
+- `voicePreviewStore.js`: Generates/caches voice preview audio on demand when needed.
+- `personalityPresets.js`: Persona style, sanitized companion responses, and quick-action response presets.
+
+### Frontend: `client/`
+
+- React + Vite app.
+- `AccessCard.jsx`: Login/create account entry screen.
+- `Onboarding.jsx`: Plant setup only.
+- `PersonalHub.jsx`: Direct plant companion chat and stats.
+- `Dashboard.jsx`: Group chat, group stats, member list, and per-companion mute controls.
+- `RoomSetup.jsx`: Create/join group sanctuary lobby.
+- `VoiceSelector.jsx`: Voice preset chooser with saved preview playback.
+- `utils/voice.js`: Deepgram/browser voice playback and mic capture helpers.
+- `utils/api.js`: Local-dev versus deployed API URL selection.
+
+## Local Development
+
+### Backend
+
 ```bash
-ollama run llama3.2
+cd server
+npm install
 ```
 
-### Step 2: Configure & Start the Backend
-1. Navigate to the `server/` directory.
-2. Install dependencies: `npm install`
-3. Copy `.env.template` to `.env` and verify settings:
-   ```env
-   USE_OLLAMA=true
-   OLLAMA_URL=http://localhost:11434
-   OLLAMA_MODEL=llama3.2
-   PORT=3001
-   TICK_INTERVAL_MS=5000
-   ```
-4. Start the engine: `node index.js`
+Copy the environment template:
 
-### Step 3: Start the Frontend UI
-1. Navigate to the `client/` directory.
-2. Install dependencies: `npm install`
-3. Start the Vite server: `npm run dev -- --host`
-4. Open your browser to `http://localhost:5173`. Open an Incognito Window to test multiplayer!
+```bash
+# Windows PowerShell
+Copy-Item .env.template .env
 
----
+# macOS/Linux
+cp .env.template .env
+```
 
-## 📈 Current Pace & Roadmap (V6)
-The core infrastructure for the Node/React WebSocket sync, the AI integration, and the CSV streaming is **complete and stable**. 
+Then start the server:
 
-**Next Steps:**
-- Refine the LLM system prompts to better utilize the simulated CSV data.
-- Develop custom 3D or SVG assets to visually represent the plants growing or wilting based on the streaming metrics.
-- Implement persistent database storage (e.g., MongoDB / SQLite) so plant growth and chat history are saved across global server restarts.
+```bash
+npm start
+```
+
+At minimum, keep this shape in `server/.env`:
+
+```env
+PORT=3001
+TICK_INTERVAL_MS=5000
+USE_OLLAMA=false
+VOICE_PROVIDER=deepgram
+DEEPGRAM_TTS_MODEL=aura-2-thalia-en
+DEEPGRAM_STT_MODEL=nova-3
+```
+
+Add real keys only in `.env`, never in git:
+
+```env
+GEMINI_API_KEY=...
+DEEPGRAM_API_KEY=...
+```
+
+### Frontend
+
+```bash
+cd client
+npm install
+npm run dev -- --host
+```
+
+Open `http://localhost:5173`.
+
+For local Vite dev, the frontend automatically talks to `http://localhost:3001`. For deployed builds served by the backend/nginx, it uses the same public origin.
+
+## AWS Quick Path
+
+The preferred AWS path is one backend process serving both the API/socket server and the built frontend. Clone the repo on EC2 and run the script from the repo root:
+
+```bash
+git clone https://github.com/MJPL013/LifeSprout.git LifeSprout
+cd LifeSprout
+bash scripts/aws_lifesprout.sh
+```
+
+On first run it installs missing packages, installs npm dependencies, builds the frontend, starts the backend with PM2, configures nginx, and prints the public URL. On later runs it rebuilds and restarts the app.
+
+Update after a new push:
+
+```bash
+bash scripts/aws_lifesprout.sh --pull
+```
+
+For full AWS steps, see `AWS_DEPLOYMENT_GUIDE.md`.
+
+## Git Hygiene
+
+Do not push local secrets, runtime account data, logs, dependency folders, or local prompt/reference dumps. The root `.gitignore` excludes:
+
+- `server/.env`
+- `server/node_modules/` and `client/node_modules/`
+- `server/data/accounts.json`
+- `server/data/rooms.json`
+- `server/data/voice-previews/`
+- `UI_files`
+- `.agents/`
+- `.codex/`
+- old system prompt/reference files
+
+Commit source code, package files, public static assets, and deployment scripts.

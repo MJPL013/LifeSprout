@@ -1,90 +1,142 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { personas } from '../data/personas';
-import { Leaf } from 'lucide-react';
 
-export default function Onboarding({ onComplete }) {
-    const [name, setName] = useState('');
-    const [selectedPlantId, setSelectedPlantId] = useState('');
+export default function Onboarding({ account, onComplete }) {
+    const [name, setName] = useState(account?.name || account?.username || '');
+    const [selectedPlantId, setSelectedPlantId] = useState(personas[0].id);
     const [deviceName, setDeviceName] = useState('');
+    const [error, setError] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!name || !selectedPlantId) return;
 
         const plant = personas.find(p => p.id === selectedPlantId);
+        setError('');
+        setIsSaving(true);
 
-        // Generate simple UUID
-        const userId = 'u_' + Math.random().toString(36).substr(2, 9);
-
-        onComplete({
-            userId,
-            name,
-            persona: plant.name, // The AI persona name
-            plantType: plant.type,
-            deviceName: deviceName || `${name}'s Companion`,
-            emoji: plant.emoji
-        });
+        try {
+            await onComplete({
+                ownerName: name,
+                persona: plant.name,
+                plantType: plant.type,
+                deviceName: deviceName || `${plant.name}`,
+                emoji: plant.emoji,
+                imgUrl: plant.imgUrl
+            });
+        } catch (err) {
+            setError(err.message || 'Could not provision companion device.');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
-        <div className="glass-card p-8 max-w-md mx-auto mt-12">
-            <div className="text-center mb-6">
-                <div className="bg-forest-green/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Leaf className="text-forest-green w-8 h-8" />
+        <div className="flex flex-col items-center justify-start py-8 max-w-2xl mx-auto w-full animate-[fadeIn_1.2s_cubic-bezier(0.22,1,0.36,1)]">
+            <section className="text-center mb-8 flex flex-col items-center">
+                <div className="relative mb-4">
+                    <div className="absolute -inset-8 bg-primary/5 rounded-full blur-3xl"></div>
+                    <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center glass-card shadow-lg shadow-primary/5 animate-[float_6s_ease-in-out_infinite]">
+                        <span className="material-symbols-outlined text-primary text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>eco</span>
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-tertiary-container/30 text-tertiary rounded-full flex items-center justify-center">
+                        <span className="material-symbols-outlined text-xs">sensors</span>
+                    </div>
                 </div>
-                <h2 className="text-2xl font-semibold">Welcome to AURA</h2>
-                <p className="text-sm text-sage mt-2">Set up your companion identity to begin.</p>
-            </div>
+                <h1 className="font-display text-4xl md:text-5xl text-on-surface mb-2 font-bold tracking-tight">
+                    Provision Your Plant
+                </h1>
+                <p className="text-on-surface-variant text-sm max-w-md">
+                    Attach a companion identity to your simulated IoT telemetry stream. You only need to do this once.
+                </p>
+            </section>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
-                <div>
-                    <label className="block text-sm font-medium mb-1">Your Name</label>
-                    <input
-                        type="text"
-                        required
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="w-full bg-parchment border border-sage/30 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-forest-green/50"
-                        placeholder="E.g., Priya"
-                    />
+            <form onSubmit={handleSubmit} className="w-full space-y-8">
+                <div className="space-y-2">
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-outline ml-1">
+                        Owner Name
+                    </label>
+                    <div className="relative group">
+                        <input
+                            type="text"
+                            required
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="What shall your companion call you?"
+                            className="w-full bg-transparent border-b border-outline-variant focus:border-primary focus:ring-0 px-1 py-3 text-xl font-body-md transition-all outline-none placeholder:text-outline-variant/40"
+                        />
+                        <div className="absolute bottom-0 left-0 h-[2px] w-0 bg-primary transition-all duration-500 group-focus-within:w-full"></div>
+                    </div>
                 </div>
 
-                <div>
-                    <label className="block text-sm font-medium mb-2">Choose Your Plant Persona</label>
-                    <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto p-1">
+                <div className="space-y-2">
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-outline ml-1">
+                        Companion Device Name (Optional)
+                    </label>
+                    <div className="relative group">
+                        <input
+                            type="text"
+                            value={deviceName}
+                            onChange={(e) => setDeviceName(e.target.value)}
+                            placeholder="Leave blank to use the persona name"
+                            className="w-full bg-transparent border-b border-outline-variant focus:border-primary focus:ring-0 px-1 py-3 text-xl font-body-md transition-all outline-none placeholder:text-outline-variant/40"
+                        />
+                        <div className="absolute bottom-0 left-0 h-[2px] w-0 bg-primary transition-all duration-500 group-focus-within:w-full"></div>
+                    </div>
+                </div>
+
+                <div className="space-y-3">
+                    <div className="flex justify-between items-end px-1">
+                        <label className="text-[11px] font-bold uppercase tracking-widest text-outline">
+                            Select a Plant Companion
+                        </label>
+                        <span className="text-xs text-primary font-medium">Binding sensor profile...</span>
+                    </div>
+                    <div className="flex gap-4 overflow-x-auto pb-4 -mx-1 px-1 snap-x no-scrollbar">
                         {personas.map(p => (
                             <div
                                 key={p.id}
                                 onClick={() => setSelectedPlantId(p.id)}
-                                className={`cursor-pointer rounded-xl p-3 border text-left transition-all ${selectedPlantId === p.id ? 'border-forest-green bg-forest-green/5 shadow-md' : 'border-sage/20 bg-white hover:border-sage'}`}
+                                className={`flex-shrink-0 w-60 glass-card rounded-3xl p-5 transition-all duration-300 cursor-pointer snap-start border-2 hover:border-primary/40 ${selectedPlantId === p.id ? 'border-primary bg-primary/5 shadow-md scale-[0.98]' : 'border-transparent bg-white/50'}`}
                             >
-                                <div className="text-2xl mb-1">{p.emoji}</div>
-                                <div className="font-semibold text-sm">{p.type}</div>
-                                <div className="text-xs text-forest-green font-medium mb-1">"{p.name}"</div>
-                                <div className="text-[10px] text-gray-500 leading-tight">{p.description}</div>
+                                <div className="h-32 w-full mb-3 rounded-2xl overflow-hidden bg-primary/5">
+                                    <img
+                                        className="w-full h-full object-cover opacity-90 mix-blend-multiply"
+                                        alt={p.type}
+                                        src={p.imgUrl}
+                                    />
+                                </div>
+                                <h3 className="font-display text-lg font-bold text-primary mb-1">
+                                    {p.type} ({p.name})
+                                </h3>
+                                <p className="text-on-surface-variant text-xs leading-relaxed">
+                                    {p.description}
+                                </p>
                             </div>
                         ))}
                     </div>
                 </div>
 
-                <div>
-                    <label className="block text-sm font-medium mb-1">Device Nickname <span className="text-gray-400 font-normal">(Optional)</span></label>
-                    <input
-                        type="text"
-                        value={deviceName}
-                        onChange={(e) => setDeviceName(e.target.value)}
-                        className="w-full bg-parchment border border-sage/30 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-forest-green/50"
-                        placeholder="My Desk Plant"
-                    />
-                </div>
+                {error && (
+                    <div className="rounded-2xl border border-critical/15 bg-critical/5 px-4 py-3 text-xs font-medium text-critical">
+                        {error}
+                    </div>
+                )}
 
-                <button
-                    type="submit"
-                    disabled={!name || !selectedPlantId}
-                    className="w-full bg-forest-green text-white rounded-lg py-3 font-medium hover:bg-forest-green/90 transition-colors disabled:opacity-50"
-                >
-                    Initialize Companion
-                </button>
+                <div className="pt-4 flex flex-col items-center">
+                    <button
+                        type="submit"
+                        disabled={!name || !selectedPlantId || isSaving}
+                        className="group relative px-12 py-4 bg-primary text-white rounded-full font-bold overflow-hidden shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all duration-500 disabled:opacity-50 cursor-pointer"
+                    >
+                        <span className="relative z-10">{isSaving ? 'Provisioning...' : 'Provision Companion'}</span>
+                        <div className="absolute inset-0 bg-primary/90 translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
+                    </button>
+                    <p className="mt-3 text-xs text-outline-variant italic">
+                        This account will reopen the same allocated plant device.
+                    </p>
+                </div>
             </form>
         </div>
     );
