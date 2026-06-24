@@ -4,6 +4,7 @@ const path = require('path');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const ROOMS_PATH = path.join(DATA_DIR, 'rooms.json');
+const MAX_PHOTO_URL_LENGTH = 1_500_000;
 
 const DEFAULT_ROOMS = [
     {
@@ -106,7 +107,7 @@ function createRoom(input = {}) {
         code,
         name: name.slice(0, 48),
         description: description.slice(0, 160),
-        photoUrl: photoUrl.slice(0, 250000),
+        photoUrl: photoUrl.slice(0, MAX_PHOTO_URL_LENGTH),
         createdBy,
         createdAt: new Date().toISOString()
     };

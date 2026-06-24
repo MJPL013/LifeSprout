@@ -31,6 +31,16 @@ function clearRoomStorage() {
   localStorage.removeItem(ROOM_META_KEY);
 }
 
+async function fetchRoomMetaByCode(code) {
+  const normalizedCode = String(code || '').trim().toUpperCase();
+  if (!normalizedCode) return null;
+
+  const response = await fetch(`${API_URL}/api/rooms`);
+  const data = await readApiJson(response, 'Oops, I cannot reach the group lobby right now.');
+  const rooms = data.rooms || [];
+  return rooms.find(room => room.code === normalizedCode) || null;
+}
+
 function App() {
   const [account, setAccount] = useState(null);
   const [user, setUser] = useState(null);
@@ -38,6 +48,7 @@ function App() {
   const [roomCode, setRoomCode] = useState(null);
   const [roomMeta, setRoomMeta] = useState(null);
   const [isRestoring, setIsRestoring] = useState(true);
+  const [roomError, setRoomError] = useState('');
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -59,13 +70,15 @@ function App() {
         setUser(data.user || null);
         setNeedsPlantSetup(Boolean(data.needsPlantSetup));
         if (savedRoom && data.user) {
-          setRoomCode(savedRoom);
-          if (savedRoomMeta) {
-            try {
-              setRoomMeta(JSON.parse(savedRoomMeta));
-            } catch {
-              setRoomMeta(null);
-            }
+          const savedMeta = await fetchRoomMetaByCode(savedRoom);
+          if (savedMeta) {
+            setRoomCode(savedMeta.code);
+            setRoomMeta(savedMeta);
+            localStorage.setItem(ROOM_META_KEY, JSON.stringify(savedMeta));
+            if (savedMeta.name) localStorage.setItem(ROOM_NAME_KEY, savedMeta.name);
+          } else {
+            clearRoomStorage();
+            setRoomError('No group found for the saved code. Choose a real group or create one.');
           }
         }
       } catch {
@@ -85,6 +98,7 @@ function App() {
     setNeedsPlantSetup(Boolean(data.needsPlantSetup));
     setRoomCode(null);
     setRoomMeta(null);
+    setRoomError('');
     localStorage.setItem(SESSION_KEY, data.account.username);
     clearRoomStorage();
   };
@@ -105,27 +119,36 @@ function App() {
     setNeedsPlantSetup(false);
   };
 
-  const handleJoinRoom = (code, name = '', meta = null) => {
+  const handleJoinRoom = async (code, name = '', meta = null) => {
     const normalizedCode = String(code || '').trim().toUpperCase();
     if (!normalizedCode) return;
 
-    const normalizedMeta = meta || (name ? { code: normalizedCode, name } : null);
-    setRoomCode(normalizedCode);
-    setRoomMeta(normalizedMeta);
-    localStorage.setItem(ROOM_KEY, normalizedCode);
+    setRoomError('');
 
-    if (normalizedMeta?.name) {
-      localStorage.setItem(ROOM_NAME_KEY, normalizedMeta.name);
+    try {
+      const normalizedMeta = meta?.code ? meta : await fetchRoomMetaByCode(normalizedCode);
+
+      if (!normalizedMeta?.code) {
+        clearRoomStorage();
+        setRoomError('No group found for that code. Ask for a valid group code or create a new group.');
+        return;
+      }
+
+      setRoomCode(normalizedMeta.code);
+      setRoomMeta(normalizedMeta);
+      localStorage.setItem(ROOM_KEY, normalizedMeta.code);
       localStorage.setItem(ROOM_META_KEY, JSON.stringify(normalizedMeta));
-    } else {
-      localStorage.removeItem(ROOM_NAME_KEY);
-      localStorage.removeItem(ROOM_META_KEY);
+      if (normalizedMeta.name) localStorage.setItem(ROOM_NAME_KEY, normalizedMeta.name);
+    } catch {
+      clearRoomStorage();
+      setRoomError('Oops, I cannot verify that group right now. Please restart the server and try again.');
     }
   };
 
   const handleLeaveRoom = () => {
     setRoomCode(null);
     setRoomMeta(null);
+    setRoomError('');
     clearRoomStorage();
   };
 
@@ -177,6 +200,12 @@ function App() {
         {isRestoring && (
           <div className="min-h-[70vh] flex items-center justify-center text-xs uppercase tracking-widest text-outline font-bold">
             Reconnecting device access...
+          </div>
+        )}
+
+        {roomError && !roomCode && (
+          <div className="mb-4 rounded-2xl border border-error/20 bg-error-container/10 px-4 py-3 text-xs font-bold text-critical">
+            {roomError}
           </div>
         )}
 

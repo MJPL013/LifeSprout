@@ -5,6 +5,7 @@ import { io } from 'socket.io-client';
 
 const FRIENDLY_LOAD_ERROR = 'Oops, the group garden is not reachable right now. Please restart the server and try again.';
 const FRIENDLY_CREATE_ERROR = 'Oops, I could not plant that group yet. The server may be down or warming up.';
+const FRIENDLY_JOIN_ERROR = 'Oops, I could not find that group code. Check the code and try again.';
 const FRIENDLY_PHOTO_ERROR = 'Oops, that photo is too large for this demo card. Try a smaller image or use a photo URL.';
 const MAX_PHOTO_BYTES = 1_500_000;
 
@@ -42,7 +43,9 @@ export default function RoomSetup({ user, onJoin }) {
     const [description, setDescription] = useState('');
     const [photoUrl, setPhotoUrl] = useState('');
     const [isCreating, setIsCreating] = useState(false);
+    const [isJoining, setIsJoining] = useState(false);
     const [error, setError] = useState('');
+    const [copiedCode, setCopiedCode] = useState('');
 
     const loadRooms = async () => {
         try {
@@ -66,11 +69,47 @@ export default function RoomSetup({ user, onJoin }) {
         return () => lobbySocket.disconnect();
     }, []);
 
-    const handleJoin = (e) => {
+    const handleJoin = async (e) => {
         e.preventDefault();
-        if (roomCode.trim().length > 0) {
-            onJoin(roomCode.trim().toUpperCase());
+        const normalizedCode = roomCode.trim().toUpperCase();
+        if (!normalizedCode) return;
+
+        setError('');
+        setIsJoining(true);
+        try {
+            const response = await fetch(`${API_URL}/api/rooms`);
+            const data = await readApiJson(response);
+            if (!response.ok) throw new Error(data.error || FRIENDLY_JOIN_ERROR);
+
+            const room = (data.rooms || []).find(item => item.code === normalizedCode);
+            if (!room?.code) throw new Error(FRIENDLY_JOIN_ERROR);
+
+            onJoin(room.code, room.name, room);
+        } catch {
+            setError(FRIENDLY_JOIN_ERROR);
+        } finally {
+            setIsJoining(false);
         }
+    };
+
+
+    const copyRoomCode = async (code) => {
+        const normalizedCode = String(code || '').trim().toUpperCase();
+        if (!normalizedCode) return;
+
+        try {
+            await navigator.clipboard.writeText(normalizedCode);
+        } catch {
+            const textarea = document.createElement('textarea');
+            textarea.value = normalizedCode;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        }
+
+        setCopiedCode(normalizedCode);
+        setTimeout(() => setCopiedCode(''), 1400);
     };
 
     const handlePhotoFile = (event) => {
@@ -233,10 +272,10 @@ export default function RoomSetup({ user, onJoin }) {
                                 />
                                 <button
                                     type="submit"
-                                    disabled={roomCode.trim().length < 3}
+                                    disabled={roomCode.trim().length < 3 || isJoining}
                                     className="bg-primary text-white w-10 h-10 rounded-full flex items-center justify-center hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 cursor-pointer shadow-md"
                                 >
-                                    <span className="material-symbols-outlined text-lg">arrow_forward</span>
+                                    <span className="material-symbols-outlined text-lg">{isJoining ? 'sync' : 'arrow_forward'}</span>
                                 </button>
                             </div>
                         </form>
@@ -250,6 +289,16 @@ export default function RoomSetup({ user, onJoin }) {
                             Refresh
                         </button>
                     </div>
+
+                    {rooms.length === 0 && (
+                        <div className="glass-card mist-shadow rounded-3xl p-8 text-center border border-outline-variant/20">
+                            <div className="w-12 h-12 rounded-full bg-primary/10 text-primary mx-auto mb-3 flex items-center justify-center">
+                                <span className="material-symbols-outlined text-xl">group_off</span>
+                            </div>
+                            <h5 className="font-display text-lg font-bold text-on-surface">No groups available</h5>
+                            <p className="text-xs text-on-surface-variant mt-1">Create a group sanctuary first, then share its code with another user.</p>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                         {rooms.map((room) => (
@@ -268,9 +317,17 @@ export default function RoomSetup({ user, onJoin }) {
                                                 {room.description}
                                             </p>
                                         </div>
-                                        <span className="bg-primary-container/20 text-on-primary-container text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">
-                                            {room.code}
-                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                copyRoomCode(room.code);
+                                            }}
+                                            className="bg-primary-container/20 text-on-primary-container text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 hover:bg-primary hover:text-white transition-colors cursor-pointer"
+                                            title="Copy group code"
+                                        >
+                                            {copiedCode === room.code ? 'Copied' : room.code}
+                                        </button>
                                     </div>
                                     <div className="relative h-28 w-full rounded-2xl overflow-hidden shadow-inner bg-primary/10 flex items-center justify-center">
                                         {room.photoUrl ? (

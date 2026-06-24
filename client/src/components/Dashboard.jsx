@@ -5,7 +5,8 @@ import MyCompanion from './MyCompanion';
 import RoomFeed from './RoomFeed';
 import VoiceSelector from './VoiceSelector';
 import MicButton from './MicButton';
-import { LogOut, Users, Volume2, VolumeX } from 'lucide-react';
+import VoiceTurnPanel from './VoiceTurnPanel';
+import { Copy, LogOut, Users, Volume2, VolumeX } from 'lucide-react';
 import {
     speakMessage,
     startVoiceCapture,
@@ -24,6 +25,7 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
     const [isListening, setIsListening] = useState(false);
     const [micStatus, setMicStatus] = useState('idle');
     const [inputValue, setInputValue] = useState('');
+    const [voiceTranscript, setVoiceTranscript] = useState('');
     const [isMuted, setIsMuted] = useState(() => {
         const stored = localStorage.getItem(`symbio_group_voice_muted_${roomCode}_v1`);
         return stored === null ? true : stored === 'true';
@@ -32,14 +34,15 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
     const [latestBotMessage, setLatestBotMessage] = useState('Connected to shared greenhouse feed...');
     const [roomDetails, setRoomDetails] = useState(() => roomMeta || {
         code: roomCode,
-        name: localStorage.getItem('symbio_room_name_v2') || `Circle ${roomCode}`,
+        name: localStorage.getItem('symbio_room_name_v2') || 'Loading group...',
         description: '',
         photoUrl: ''
     });
-    const [roomName, setRoomName] = useState(roomMeta?.name || localStorage.getItem('symbio_room_name_v2') || `Circle ${roomCode}`);
+    const [roomName, setRoomName] = useState(roomMeta?.name || localStorage.getItem('symbio_room_name_v2') || 'Loading group...');
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [showMembersPanel, setShowMembersPanel] = useState(false);
     const [inspectedMember, setInspectedMember] = useState(null);
+    const [copiedCode, setCopiedCode] = useState(false);
     const [mutedCompanionIds, setMutedCompanionIds] = useState(() => {
         try {
             return new Set(JSON.parse(localStorage.getItem(`symbio_room_muted_${roomCode}_v1`) || '[]'));
@@ -55,6 +58,8 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
     const voicePresetRef = useRef(selectedVoicePreset);
     const mutedCompanionIdsRef = useRef(mutedCompanionIds);
     const stopMicTimeoutRef = useRef(null);
+    const voiceSubmitTimeoutRef = useRef(null);
+    const lastVoiceSentRef = useRef('');
 
     useEffect(() => {
         isMutedRef.current = isMuted;
@@ -87,10 +92,19 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
             if (info.roomName) setRoomName(info.roomName);
             setRoomDetails({
                 code: info.roomCode || roomCode,
-                name: info.roomName || roomMeta?.name || `Circle ${roomCode}`,
+                name: info.roomName || roomMeta?.name || 'Loading group...',
                 description: info.description || '',
                 photoUrl: info.photoUrl || ''
             });
+        });
+
+        newSocket.on('room_join_error', (info) => {
+            setFeed(prev => [...prev, {
+                id: Date.now() + Math.random(),
+                type: 'system',
+                message: info?.error || 'No group found for that code.'
+            }]);
+            setTimeout(onLeave, 900);
         });
 
         newSocket.on('user_joined', (userData) => {
@@ -131,6 +145,7 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
 
         return () => {
             if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
+            if (voiceSubmitTimeoutRef.current) clearTimeout(voiceSubmitTimeoutRef.current);
             voiceControllerRef.current?.stop();
             voiceControllerRef.current = null;
             socketRef.current = null;
@@ -142,6 +157,26 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
     useEffect(() => {
         feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [feed]);
+
+
+    const copyRoomCode = async () => {
+        const normalizedCode = String(roomCode || '').trim().toUpperCase();
+        if (!normalizedCode) return;
+
+        try {
+            await navigator.clipboard.writeText(normalizedCode);
+        } catch {
+            const textarea = document.createElement('textarea');
+            textarea.value = normalizedCode;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        }
+
+        setCopiedCode(true);
+        setTimeout(() => setCopiedCode(false), 1400);
+    };
 
     const handleMuteToggle = () => {
         const nextMuted = !isMuted;
@@ -157,11 +192,35 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
 
     const stopVoiceInput = () => {
         if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
+        if (voiceSubmitTimeoutRef.current) clearTimeout(voiceSubmitTimeoutRef.current);
         setMicStatus('stopping');
         voiceControllerRef.current?.stop();
         voiceControllerRef.current = null;
         setIsListening(false);
         stopMicTimeoutRef.current = setTimeout(() => setMicStatus('idle'), 260);
+    };
+
+    const submitVoiceTranscript = (transcript) => {
+        const cleanTranscript = String(transcript || '').replace(/\s{2,}/g, ' ').trim();
+        if (!cleanTranscript || cleanTranscript.length < 2 || cleanTranscript === lastVoiceSentRef.current) return;
+
+        lastVoiceSentRef.current = cleanTranscript;
+        setMicStatus('processing');
+        setInputValue('');
+        setVoiceTranscript(cleanTranscript);
+        sendManualMessage('voice', cleanTranscript);
+        stopVoiceInput();
+    };
+
+    const scheduleVoiceSubmit = (transcript, meta = {}) => {
+        const cleanTranscript = String(transcript || '').replace(/\s{2,}/g, ' ').trim();
+        if (!cleanTranscript) return;
+
+        setInputValue(cleanTranscript);
+        setVoiceTranscript(cleanTranscript);
+        if (voiceSubmitTimeoutRef.current) clearTimeout(voiceSubmitTimeoutRef.current);
+        const delay = meta.speechFinal ? 900 : 1400;
+        voiceSubmitTimeoutRef.current = setTimeout(() => submitVoiceTranscript(cleanTranscript), delay);
     };
 
     const handleMicClick = async () => {
@@ -172,14 +231,19 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
 
         cancelSpeech();
         setInputValue('');
+        setVoiceTranscript('');
+        lastVoiceSentRef.current = '';
         setIsListening(true);
         setMicStatus('starting');
 
         try {
             voiceControllerRef.current = await startVoiceCapture({
                 socket: socketRef.current,
-                onInterim: (transcript) => setInputValue(transcript),
-                onFinal: (transcript) => setInputValue(transcript),
+                onInterim: (transcript) => {
+                    setInputValue(transcript);
+                    setVoiceTranscript(transcript);
+                },
+                onFinal: scheduleVoiceSubmit,
                 onState: (active) => {
                     setIsListening(active);
                     setMicStatus(active ? 'listening' : 'idle');
@@ -264,8 +328,19 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
             <div className="flex-grow flex flex-col glass-card overflow-hidden border border-white/20 shadow-xl shadow-primary/5 h-full relative z-10">
                 {/* Header */}
                 <div className="bg-white/50 px-4 md:px-6 py-3 md:py-3.5 border-b border-outline-variant/30 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                    <div>
-                        <span className="text-[9px] font-bold text-outline uppercase tracking-widest">Gardening Circle ({roomCode})</span>
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-bold text-outline uppercase tracking-widest truncate">Gardening Circle ({roomCode})</span>
+                            <button
+                                type="button"
+                                onClick={copyRoomCode}
+                                className="shrink-0 inline-flex items-center gap-1 rounded-full border border-primary/15 bg-primary/5 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary hover:bg-primary hover:text-white transition-colors cursor-pointer"
+                                title="Copy group code"
+                            >
+                                <Copy className="w-3 h-3" />
+                                {copiedCode ? 'Copied' : 'Copy'}
+                            </button>
+                        </div>
                         <h3 className="font-bold text-on-surface text-base leading-tight truncate max-w-[260px] md:max-w-md">{roomName}</h3>
                     </div>
                     {/* Controls */}
@@ -381,6 +456,10 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
                 </div>
             </div>
 
+            {['starting', 'listening', 'processing', 'stopping'].includes(micStatus) && (
+                <VoiceTurnPanel status={micStatus} transcript={voiceTranscript || inputValue} onCancel={stopVoiceInput} />
+            )}
+
             {isDrawerOpen && (
                 <div
                     className="fixed md:hidden inset-0 z-40 bg-black/20 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]"
@@ -427,9 +506,15 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
                         <p className="text-[10px] text-on-surface-variant leading-snug max-h-8 overflow-hidden">
                             {roomDetails?.description || 'Shared telemetry group chat'}
                         </p>
-                        <div className="text-[9px] uppercase tracking-wider text-outline font-bold mt-1">
-                            {roomCode} - {memberEntries.length} joined
-                        </div>
+                        <button
+                            type="button"
+                            onClick={copyRoomCode}
+                            className="text-[9px] uppercase tracking-wider text-outline hover:text-primary font-bold mt-1 inline-flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Copy group code"
+                        >
+                            <Copy className="w-3 h-3" />
+                            {copiedCode ? 'Copied' : roomCode} - {memberEntries.length} joined
+                        </button>
                     </div>
                 </div>
                 <MyCompanion user={user} metrics={metrics} />

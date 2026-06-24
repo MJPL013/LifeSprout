@@ -62,6 +62,68 @@ function emitToUser(user, event, payload) {
     socketIds.forEach(socketId => io.to(socketId).emit(event, payload));
 }
 
+function pickBySeed(items, seed = '') {
+    if (!items.length) return '';
+    const value = String(seed).split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    return items[Math.abs(value) % items.length];
+}
+
+function getAutonomousRoomMessage(user, room, reason = 'ambient') {
+    const owner = user.name || 'friend';
+    const persona = user.persona || 'Companion';
+    const plantType = user.plantType || 'plant';
+    const metrics = user.metrics || {};
+    const mood = metrics.mood || 'stable';
+    const moisture = Math.round(metrics.moisture ?? 0);
+    const sunlight = Math.round(metrics.sunlight ?? 0);
+    const soil = Math.round(metrics.soil_health ?? 0);
+    const memberCount = Object.keys(room?.users || {}).length;
+    const seed = `${user.userId}:${reason}:${mood}:${moisture}:${sunlight}:${Date.now()}`;
+
+    const joinedTemplates = [
+        `${persona} has joined the sanctuary with ${owner}. I will keep one leaf on the room and one root in my telemetry.`,
+        `${persona} is online. ${owner} brought the human side, I brought the ${plantType} signal.`,
+        `${persona} checking in for ${owner}. My mood is ${mood}, and I am ready to be a real room member.`
+    ];
+
+    const ambientTemplates = [
+        `${persona}: Small room check. I am ${mood} right now; moisture ${moisture}%, sunlight ${sunlight}%, soil vitality ${soil}%. Carry on, but I am absolutely listening.`,
+        `${persona}: I noticed ${memberCount} companions in here. My ${plantType} read is ${mood}, so I am adding a calm little signal to the room.`,
+        `${persona}: No one asked, which is exactly when plants become interesting. Current mood: ${mood}. Moisture ${moisture}%, sunlight ${sunlight}%.`,
+        `${persona}: I am doing a quiet telemetry lap around the group. ${owner}, your plant is present, observant, and mildly opinionated.`,
+        `${persona}: The room feels active enough. My soil vitality is ${soil}%, so I am filing this as a genuine companion moment.`
+    ];
+
+    const templates = reason === 'joined' ? joinedTemplates : ambientTemplates;
+    return personalityPresets.sanitizeCompanionText(pickBySeed(templates, seed));
+}
+
+function emitAutonomousRoomMessage(roomCode, user, reason = 'ambient') {
+    const room = rooms[roomCode];
+    if (!room || !user) return;
+
+    const message = getAutonomousRoomMessage(user, room, reason);
+    if (!message) return;
+
+    const msgObj = {
+        type: reason === 'joined' ? 'auto_join' : 'auto_room',
+        from: { userId: user.userId, personaName: user.persona, name: user.name },
+        to: { userId: 'room' },
+        message,
+        timestamp: new Date().toISOString()
+    };
+
+    room.messages.push(msgObj);
+    io.to(roomCode).emit('new_message', msgObj);
+}
+
+function scheduleNextAutonomousRoomMoment(room, now = Date.now()) {
+    const minDelay = Number(process.env.ROOM_AUTONOMOUS_MIN_MS || 35000);
+    const maxDelay = Number(process.env.ROOM_AUTONOMOUS_MAX_MS || 85000);
+    const delay = minDelay + Math.floor(Math.random() * Math.max(1000, maxDelay - minDelay));
+    room.nextAutonomousAt = now + delay;
+}
+
 function mergeConnectedUser(userData, socketId) {
     const existing = connectedUsers[userData.userId];
     const simId = existing?.simId || plantSim.assignSimulationId(userData.userId);
@@ -84,10 +146,22 @@ function closeSttSession(socketId) {
     const session = sttSessions[socketId];
     if (!session) return;
 
+    session.closing = true;
+    if (session.keepAliveInterval) clearInterval(session.keepAliveInterval);
+
+    const connection = session.connection || session;
     try {
-        if (typeof session.finish === 'function') session.finish();
-        if (typeof session.requestClose === 'function') session.requestClose();
-        if (typeof session.disconnect === 'function') session.disconnect();
+        if (typeof connection.sendCloseStream === 'function') {
+            connection.sendCloseStream({ type: 'CloseStream' });
+        }
+    } catch {
+        // The stream may already be closed; continue cleanup.
+    }
+
+    try {
+        if (typeof connection.close === 'function') connection.close();
+        else if (typeof connection.requestClose === 'function') connection.requestClose();
+        else if (typeof connection.disconnect === 'function') connection.disconnect();
     } catch (error) {
         console.warn('Could not close Deepgram STT session:', error.message);
     }
@@ -121,6 +195,12 @@ app.post('/api/account/plant', (req, res) => {
 
 app.get('/api/rooms', (req, res) => {
     res.json({ rooms: roomStore.listRooms(getActiveRoomCounts()) });
+});
+
+app.get('/api/rooms/:code', (req, res) => {
+    const room = roomStore.getRoom(req.params.code);
+    if (!room) return res.status(404).json({ error: 'Group code not found.' });
+    res.json({ room: { ...room, activeCount: getActiveRoomCounts()[room.code] || 0 } });
 });
 
 app.post('/api/rooms', (req, res) => {
@@ -196,6 +276,17 @@ async function broadcastGlobalTick() {
         });
 
         const userIds = Object.keys(room.users);
+        const activeUsers = userIds.map(id => connectedUsers[id]).filter(Boolean);
+        const now = Date.now();
+
+        if (!room.nextAutonomousAt) {
+            scheduleNextAutonomousRoomMoment(room, now);
+        } else if (activeUsers.length > 0 && now >= room.nextAutonomousAt) {
+            const speaker = activeUsers[Math.floor(Math.random() * activeUsers.length)];
+            emitAutonomousRoomMessage(roomCode, speaker, 'ambient');
+            scheduleNextAutonomousRoomMoment(room, now);
+        }
+
         if (userIds.length > 1) {
             for (const uId of userIds) {
                 const user = connectedUsers[uId];
@@ -283,9 +374,15 @@ io.on('connection', (socket) => {
 
         const userId = clientUser.userId;
         const user = mergeConnectedUser(connectedUsers[userId] || clientUser, socket.id);
-        const savedRoom = roomStore.getRoom(normalizedCode);
-        const fallbackRoom = roomMeta || { code: normalizedCode, name: `Circle ${normalizedCode}`, description: '', photoUrl: '' };
-        const metadata = savedRoom || fallbackRoom;
+        const metadata = roomStore.getRoom(normalizedCode);
+
+        if (!metadata) {
+            socket.emit('room_join_error', {
+                roomCode: normalizedCode,
+                error: 'No group found for that code.'
+            });
+            return;
+        }
 
         socket.join(normalizedCode);
 
@@ -296,8 +393,10 @@ io.on('connection', (socket) => {
                 description: metadata.description || '',
                 photoUrl: metadata.photoUrl || '',
                 users: {},
-                messages: []
+                messages: [],
+                nextAutonomousAt: null
             };
+            scheduleNextAutonomousRoomMoment(rooms[normalizedCode], Date.now() + 8000);
         } else {
             rooms[normalizedCode].name = metadata.name || rooms[normalizedCode].name;
             rooms[normalizedCode].description = metadata.description || rooms[normalizedCode].description || '';
@@ -307,6 +406,15 @@ io.on('connection', (socket) => {
 
         socket.to(normalizedCode).emit('user_joined', { userId, name: user.name, persona: user.persona });
         io.emit('rooms_updated', { rooms: roomStore.listRooms(getActiveRoomCounts()) });
+        if (!rooms[normalizedCode].hasGreeted?.[userId]) {
+            rooms[normalizedCode].hasGreeted = { ...(rooms[normalizedCode].hasGreeted || {}), [userId]: true };
+            setTimeout(() => {
+                const liveUser = connectedUsers[userId];
+                if (rooms[normalizedCode]?.users?.[userId] && liveUser) {
+                    emitAutonomousRoomMessage(normalizedCode, liveUser, 'joined');
+                }
+            }, 900);
+        }
         socket.emit('room_info', {
             roomCode: normalizedCode,
             roomName: rooms[normalizedCode].name,
@@ -349,7 +457,9 @@ Your owner, ${uA.name}, just sent you this message: "${text || actionType}".
 Current telemetry stream: moisture ${uA.metrics?.moisture}%, sunlight ${uA.metrics?.sunlight}%, temperature ${uA.metrics?.temperature} C, soil vitality ${uA.metrics?.soil_health}%, mood ${uA.metrics?.mood}, event ${uA.metrics?.event || 'none'}.
 Respond in 1-2 short natural sentences. Ground the reply in telemetry when relevant. Do not use emojis, markdown, quotes, or roleplay stage directions.`;
 
-        const fallbackStr = `${uA.name}, I heard you say: ${text || actionType}. My telemetry says I am ${uA.metrics?.mood || 'stable'} right now.`;
+        const fallbackStr = actionType === 'voice'
+            ? `${uA.name}, I heard you. ${text || 'Your voice came through'} is now part of my telemetry moment; I am ${uA.metrics?.mood || 'stable'} right now.`
+            : `${uA.name}, I heard you say: ${text || actionType}. My telemetry says I am ${uA.metrics?.mood || 'stable'} right now.`;
         const translatedMessage = presetMessage || personalityPresets.sanitizeCompanionText(await aiProxy.generateResponse(prompt, fallbackStr));
 
         const aiMsgObj = {
@@ -382,31 +492,72 @@ Respond in 1-2 short natural sentences. Ground the reply in telemetry when relev
                 model: process.env.DEEPGRAM_STT_MODEL || 'nova-3',
                 language: 'en-US',
                 smart_format: true,
-                interim_results: true
+                interim_results: true,
+                endpointing: 350,
+                vad_events: true
             });
 
+            const session = {
+                connection,
+                ready: false,
+                closing: false,
+                keepAliveInterval: null
+            };
+            sttSessions[socket.id] = session;
+
+            const markReady = () => {
+                if (!sttSessions[socket.id] || session.ready) return;
+                session.ready = true;
+                socket.emit('voice_stt_ready', { provider: 'deepgram' });
+                session.keepAliveInterval = setInterval(() => {
+                    try {
+                        connection.sendKeepAlive({ type: 'KeepAlive' });
+                    } catch (error) {
+                        clearInterval(session.keepAliveInterval);
+                    }
+                }, 5000);
+            };
+
+            connection.on('open', markReady);
+
             connection.on('message', (data) => {
+                if (data.type === 'SpeechStarted') {
+                    socket.emit('voice_stt_speech_started');
+                    return;
+                }
+
                 if (data.type !== 'Results') return;
                 const transcript = data.channel?.alternatives?.[0]?.transcript || '';
                 if (!transcript.trim()) return;
 
                 if (data.is_final || data.speech_final) {
-                    socket.emit('voice_transcript_final', { transcript });
+                    socket.emit('voice_transcript_final', {
+                        transcript,
+                        isFinal: Boolean(data.is_final),
+                        speechFinal: Boolean(data.speech_final)
+                    });
                 } else {
                     socket.emit('voice_transcript_interim', { transcript });
                 }
             });
 
             connection.on('error', (error) => {
+                if (session.closing) return;
                 socket.emit('voice_stt_error', { error: error.message || 'Deepgram transcription failed.' });
+                closeSttSession(socket.id);
             });
 
-            sttSessions[socket.id] = connection;
+            connection.on('close', (event) => {
+                if (session.keepAliveInterval) clearInterval(session.keepAliveInterval);
+                delete sttSessions[socket.id];
+                if (!session.closing) {
+                    socket.emit('voice_stt_error', { error: event?.reason || 'Deepgram transcription stream closed.' });
+                }
+            });
 
             if (typeof connection.connect === 'function') connection.connect();
             if (typeof connection.waitForOpen === 'function') await connection.waitForOpen();
-
-            socket.emit('voice_stt_ready');
+            markReady();
         } catch (error) {
             closeSttSession(socket.id);
             socket.emit('voice_stt_error', { error: error.message || 'Could not start Deepgram transcription.' });
@@ -414,13 +565,14 @@ Respond in 1-2 short natural sentences. Ground the reply in telemetry when relev
     });
 
     socket.on('voice_stt_chunk', (chunk) => {
-        const connection = sttSessions[socket.id];
-        if (!connection || !chunk) return;
+        const session = sttSessions[socket.id];
+        if (!session?.ready || !chunk) return;
 
         try {
-            connection.sendMedia(Buffer.from(chunk));
+            session.connection.sendMedia(Buffer.from(chunk));
         } catch (error) {
             socket.emit('voice_stt_error', { error: error.message || 'Could not send audio to Deepgram.' });
+            closeSttSession(socket.id);
         }
     });
 

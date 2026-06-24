@@ -335,19 +335,29 @@ function startBrowserRecognition({ onInterim, onFinal, onState, onError }) {
     recognition.onstart = () => onState?.(true);
     recognition.onend = () => onState?.(false);
     recognition.onerror = (event) => onError?.(event.error || 'Browser speech recognition failed.');
+    let committedTranscript = '';
     recognition.onresult = (event) => {
-        let transcript = '';
-        let finalTranscript = '';
+        let interimTranscript = '';
+        let finalChunk = '';
 
-        for (let i = 0; i < event.results.length; i++) {
-            transcript += event.results[i][0].transcript;
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const chunk = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
-                finalTranscript += event.results[i][0].transcript;
+                finalChunk += chunk;
+            } else {
+                interimTranscript += chunk;
             }
         }
 
-        onInterim?.(transcript);
-        if (finalTranscript.trim()) onFinal?.(finalTranscript.trim());
+        if (finalChunk.trim()) {
+            committedTranscript = `${committedTranscript} ${finalChunk}`.replace(/\s{2,}/g, ' ').trim();
+        }
+
+        const displayTranscript = `${committedTranscript} ${interimTranscript}`.replace(/\s{2,}/g, ' ').trim();
+        onInterim?.(displayTranscript);
+        if (finalChunk.trim()) {
+            onFinal?.(committedTranscript, { provider: 'browser', isFinal: true, speechFinal: true });
+        }
     };
 
     recognition.start();
@@ -357,24 +367,36 @@ function startBrowserRecognition({ onInterim, onFinal, onState, onError }) {
 export async function startVoiceCapture({ socket, onInterim, onFinal, onState, onError }) {
     cancelSpeech();
 
-    if (!socket || !navigator.mediaDevices || !window.MediaRecorder) {
-        return startBrowserRecognition({ onInterim, onFinal, onState, onError });
+    const useBrowserFallback = (reason) => {
+        const fallback = startBrowserRecognition({ onInterim, onFinal, onState, onError });
+        if (!fallback && reason) onError?.(reason);
+        return fallback;
+    };
+
+    if (!socket?.connected || !navigator.mediaDevices || !window.MediaRecorder) {
+        return useBrowserFallback('Deepgram voice input needs a live socket and browser microphone access.');
     }
 
     let stream = null;
     let recorder = null;
     let fallbackController = null;
     let stopped = false;
+    let deepgramReady = false;
+    let readyTimeout = null;
 
-    const cleanup = () => {
+    const detachDeepgram = ({ notify = false, emitStop = true } = {}) => {
         socket.off('voice_stt_ready', handleReady);
+        socket.off('voice_stt_speech_started', handleSpeechStarted);
         socket.off('voice_transcript_interim', handleInterim);
         socket.off('voice_transcript_final', handleFinal);
         socket.off('voice_stt_error', handleError);
+        if (readyTimeout) clearTimeout(readyTimeout);
         if (recorder && recorder.state !== 'inactive') recorder.stop();
+        recorder = null;
         if (stream) stream.getTracks().forEach(track => track.stop());
-        socket.emit('voice_stt_stop');
-        onState?.(false);
+        stream = null;
+        if (emitStop && socket.connected) socket.emit('voice_stt_stop');
+        if (notify) onState?.(false);
     };
 
     const controller = {
@@ -382,7 +404,7 @@ export async function startVoiceCapture({ socket, onInterim, onFinal, onState, o
         stop: () => {
             stopped = true;
             if (fallbackController) fallbackController.stop();
-            cleanup();
+            detachDeepgram({ notify: true });
         }
     };
 
@@ -391,44 +413,67 @@ export async function startVoiceCapture({ socket, onInterim, onFinal, onState, o
     }
 
     function handleFinal(data) {
-        onFinal?.(data.transcript || '');
+        onFinal?.(data.transcript || '', data || {});
+    }
+
+    function handleSpeechStarted() {
+        onState?.(true);
     }
 
     function handleError(data) {
+        if (stopped) return;
         const message = data?.error || 'Deepgram transcription failed.';
-        cleanup();
-        onError?.(message);
-
-        if (!stopped) {
-            fallbackController = startBrowserRecognition({ onInterim, onFinal, onState, onError });
-        }
+        detachDeepgram({ notify: false });
+        console.warn('Deepgram STT unavailable, trying browser recognition:', message);
+        fallbackController = useBrowserFallback(message);
+        if (!fallbackController) onState?.(false);
     }
 
     async function handleReady() {
-        if (stopped) return;
+        if (stopped || deepgramReady) return;
+        deepgramReady = true;
+        if (readyTimeout) clearTimeout(readyTimeout);
 
         try {
-            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
             recorder = new MediaRecorder(stream, { mimeType });
             recorder.ondataavailable = async (event) => {
-                if (event.data.size > 0 && socket.connected) {
+                if (event.data.size > 0 && socket.connected && deepgramReady) {
                     socket.emit('voice_stt_chunk', await event.data.arrayBuffer());
                 }
             };
-            recorder.onstop = () => onState?.(false);
-            recorder.start(250);
+            recorder.onerror = (event) => handleError({ error: event.error?.message || 'Microphone recorder failed.' });
+            recorder.start(500);
             onState?.(true);
         } catch (error) {
-            handleError({ error: error.message || 'Microphone permission was denied.' });
+            handleError({ error: error.message || 'Could not start microphone recorder.' });
         }
     }
 
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+    } catch (error) {
+        return useBrowserFallback(error.message || 'Microphone permission was denied.');
+    }
+
     socket.on('voice_stt_ready', handleReady);
+    socket.on('voice_stt_speech_started', handleSpeechStarted);
     socket.on('voice_transcript_interim', handleInterim);
     socket.on('voice_transcript_final', handleFinal);
     socket.on('voice_stt_error', handleError);
     socket.emit('voice_stt_start');
+
+    readyTimeout = setTimeout(() => {
+        if (!deepgramReady && !stopped) {
+            handleError({ error: 'Deepgram did not open the live stream in time.' });
+        }
+    }, 9000);
 
     return controller;
 }

@@ -5,6 +5,7 @@ import MyCompanion from './MyCompanion';
 import RoomFeed from './RoomFeed';
 import VoiceSelector from './VoiceSelector';
 import MicButton from './MicButton';
+import VoiceTurnPanel from './VoiceTurnPanel';
 import { LogOut, Users, Volume2, VolumeX } from 'lucide-react';
 import RoomSetup from './RoomSetup';
 import { getPlantImageSrc } from '../utils/plants';
@@ -29,6 +30,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     const [isListening, setIsListening] = useState(false);
     const [micStatus, setMicStatus] = useState('idle');
     const [inputValue, setInputValue] = useState('');
+    const [voiceTranscript, setVoiceTranscript] = useState('');
     const [isMuted, setIsMuted] = useState(() => getVoiceMuted());
     const [voicePresetId, setVoicePresetId] = useState(() => getStoredVoicePreset(user.userId).id);
     const [latestBotMessage, setLatestBotMessage] = useState('Direct connection established...');
@@ -40,6 +42,8 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     const voicePresetRef = useRef(selectedVoicePreset);
     const hasSentGreetingRef = useRef(false);
     const stopMicTimeoutRef = useRef(null);
+    const voiceSubmitTimeoutRef = useRef(null);
+    const lastVoiceSentRef = useRef('');
 
     useEffect(() => {
         isMutedRef.current = isMuted;
@@ -84,6 +88,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
 
         return () => {
             if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
+            if (voiceSubmitTimeoutRef.current) clearTimeout(voiceSubmitTimeoutRef.current);
             voiceControllerRef.current?.stop();
             voiceControllerRef.current = null;
             socketRef.current = null;
@@ -130,11 +135,35 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
 
     const stopVoiceInput = () => {
         if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
+        if (voiceSubmitTimeoutRef.current) clearTimeout(voiceSubmitTimeoutRef.current);
         setMicStatus('stopping');
         voiceControllerRef.current?.stop();
         voiceControllerRef.current = null;
         setIsListening(false);
         stopMicTimeoutRef.current = setTimeout(() => setMicStatus('idle'), 260);
+    };
+
+    const submitVoiceTranscript = (transcript) => {
+        const cleanTranscript = String(transcript || '').replace(/\s{2,}/g, ' ').trim();
+        if (!cleanTranscript || cleanTranscript.length < 2 || cleanTranscript === lastVoiceSentRef.current) return;
+
+        lastVoiceSentRef.current = cleanTranscript;
+        setMicStatus('processing');
+        setInputValue('');
+        setVoiceTranscript(cleanTranscript);
+        sendManualMessage('voice', cleanTranscript);
+        stopVoiceInput();
+    };
+
+    const scheduleVoiceSubmit = (transcript, meta = {}) => {
+        const cleanTranscript = String(transcript || '').replace(/\s{2,}/g, ' ').trim();
+        if (!cleanTranscript) return;
+
+        setInputValue(cleanTranscript);
+        setVoiceTranscript(cleanTranscript);
+        if (voiceSubmitTimeoutRef.current) clearTimeout(voiceSubmitTimeoutRef.current);
+        const delay = meta.speechFinal ? 900 : 1400;
+        voiceSubmitTimeoutRef.current = setTimeout(() => submitVoiceTranscript(cleanTranscript), delay);
     };
 
     const handleMicClick = async () => {
@@ -145,14 +174,19 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
 
         cancelSpeech();
         setInputValue('');
+        setVoiceTranscript('');
+        lastVoiceSentRef.current = '';
         setIsListening(true);
         setMicStatus('starting');
 
         try {
             voiceControllerRef.current = await startVoiceCapture({
                 socket: socketRef.current,
-                onInterim: (transcript) => setInputValue(transcript),
-                onFinal: (transcript) => setInputValue(transcript),
+                onInterim: (transcript) => {
+                    setInputValue(transcript);
+                    setVoiceTranscript(transcript);
+                },
+                onFinal: scheduleVoiceSubmit,
                 onState: (active) => {
                     setIsListening(active);
                     setMicStatus(active ? 'listening' : 'idle');
@@ -345,6 +379,10 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
 
                 </div>
             </div>
+
+            {['starting', 'listening', 'processing', 'stopping'].includes(micStatus) && (
+                <VoiceTurnPanel status={micStatus} transcript={voiceTranscript || inputValue} onCancel={stopVoiceInput} />
+            )}
 
             {isDrawerOpen && (
                 <div
