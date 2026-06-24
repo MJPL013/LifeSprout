@@ -12,6 +12,7 @@ import { getPlantImageSrc } from '../utils/plants';
 import {
     speakMessage,
     startVoiceCapture,
+    startVoiceAgentCapture,
     setVoiceMuted,
     getVoiceMuted,
     cancelSpeech,
@@ -29,6 +30,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     const [showRoomSetup, setShowRoomSetup] = useState(false);
     const [isListening, setIsListening] = useState(false);
     const [micStatus, setMicStatus] = useState('idle');
+    const [voiceMode, setVoiceMode] = useState('stt');
     const [inputValue, setInputValue] = useState('');
     const [voiceTranscript, setVoiceTranscript] = useState('');
     const [isMuted, setIsMuted] = useState(() => getVoiceMuted());
@@ -75,7 +77,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
             // Check if it's a message from the plant to update subtitles
             if (msg.type?.startsWith('auto') || msg.from?.userId === user.userId) {
                 setLatestBotMessage(msg.message);
-                if (!isMutedRef.current && msg.type?.startsWith('auto')) {
+                if (!isMutedRef.current && msg.type?.startsWith('auto') && msg.source !== 'deepgram_agent') {
                     speakMessage(msg.message, {
                         persona: user.persona,
                         userId: user.userId,
@@ -178,39 +180,58 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         lastVoiceSentRef.current = '';
         setIsListening(true);
         setMicStatus('starting');
+        setVoiceMode('agent');
 
         try {
-            voiceControllerRef.current = await startVoiceCapture({
+            const agentController = await startVoiceAgentCapture({
                 socket: socketRef.current,
+                user,
+                metrics,
+                voicePreset: voicePresetRef.current,
                 onInterim: (transcript) => {
                     setInputValue(transcript);
                     setVoiceTranscript(transcript);
                 },
-                onFinal: scheduleVoiceSubmit,
+                onFinal: (transcript) => {
+                    setInputValue(transcript);
+                    setVoiceTranscript(transcript);
+                    setMicStatus('processing');
+                },
+                onAgent: (transcript) => {
+                    setLatestBotMessage(transcript);
+                    setMicStatus('processing');
+                },
+                onStatus: (status) => {
+                    setMicStatus(status === 'processing' || status === 'speaking' ? 'processing' : 'listening');
+                },
                 onState: (active) => {
                     setIsListening(active);
                     setMicStatus(active ? 'listening' : 'idle');
                 },
                 onError: (message) => {
-                    console.warn('Voice input fallback:', message);
+                    console.warn('Deepgram Agent unavailable:', message);
+                    setLatestBotMessage(`Voice Agent could not open: ${message}`);
                     setMicStatus('error');
-                    setTimeout(() => setMicStatus('idle'), 1200);
+                    setIsListening(false);
+                    setTimeout(() => setMicStatus('idle'), 1600);
                 }
             });
 
+            voiceControllerRef.current = agentController;
             if (!voiceControllerRef.current) {
                 setIsListening(false);
                 setMicStatus('error');
-                setTimeout(() => setMicStatus('idle'), 1200);
+                setLatestBotMessage('Voice Agent did not connect. Check server logs and Deepgram Agent settings.');
+                setTimeout(() => setMicStatus('idle'), 1600);
             }
         } catch (error) {
-            console.warn('Voice input failed:', error.message);
+            console.warn('Voice Agent failed:', error.message);
+            setLatestBotMessage(`Voice Agent failed to start: ${error.message}`);
             setIsListening(false);
             setMicStatus('error');
-            setTimeout(() => setMicStatus('idle'), 1200);
+            setTimeout(() => setMicStatus('idle'), 1600);
         }
     };
-
     if (!isActive) {
         return (
             <div className="flex flex-col items-center justify-center h-[70vh] relative overflow-hidden animate-[fadeIn_1.2s_ease-out]">
@@ -381,7 +402,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
             </div>
 
             {['starting', 'listening', 'processing', 'stopping'].includes(micStatus) && (
-                <VoiceTurnPanel status={micStatus} transcript={voiceTranscript || inputValue} onCancel={stopVoiceInput} />
+                <VoiceTurnPanel status={micStatus} transcript={voiceTranscript || inputValue} onCancel={stopVoiceInput} mode={voiceMode} />
             )}
 
             {isDrawerOpen && (

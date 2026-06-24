@@ -267,7 +267,6 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
             setTimeout(() => setMicStatus('idle'), 1200);
         }
     };
-
     const toggleCompanionMute = (memberId) => {
         setMutedCompanionIds(prev => {
             const next = new Set(prev);
@@ -457,7 +456,7 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
             </div>
 
             {['starting', 'listening', 'processing', 'stopping'].includes(micStatus) && (
-                <VoiceTurnPanel status={micStatus} transcript={voiceTranscript || inputValue} onCancel={stopVoiceInput} />
+                <VoiceTurnPanel status={micStatus} transcript={voiceTranscript || inputValue} onCancel={stopVoiceInput} mode="stt" />
             )}
 
             {isDrawerOpen && (

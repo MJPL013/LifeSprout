@@ -1,17 +1,27 @@
 import { Mic, Waves } from 'lucide-react';
 
 const STATUS_LABELS = {
-    starting: 'Opening voice link',
-    listening: 'Listening',
-    processing: 'Sending to companion',
-    stopping: 'Closing voice link',
-    error: 'Voice unavailable'
+    stt: {
+        starting: 'Opening voice link',
+        listening: 'Listening',
+        processing: 'Sending to companion',
+        stopping: 'Closing voice link',
+        error: 'Voice unavailable'
+    },
+    agent: {
+        starting: 'Opening Deepgram Agent',
+        listening: 'Deepgram Agent Live',
+        processing: 'Plant is answering',
+        stopping: 'Closing voice agent',
+        error: 'Voice agent unavailable'
+    }
 };
 
-export default function VoiceTurnPanel({ status, transcript, onCancel }) {
+export default function VoiceTurnPanel({ status, transcript, onCancel, mode = 'stt' }) {
     const isProcessing = status === 'processing';
     const isStopping = status === 'stopping';
-    const label = STATUS_LABELS[status] || STATUS_LABELS.listening;
+    const labels = STATUS_LABELS[mode] || STATUS_LABELS.stt;
+    const label = labels[status] || labels.listening;
 
     return (
         <div className="fixed inset-0 z-40 flex items-end md:items-center justify-center bg-black/10 backdrop-blur-[2px] px-3 pb-24 md:pb-6 animate-[fadeIn_0.18s_ease-out]" onMouseDown={onCancel}>

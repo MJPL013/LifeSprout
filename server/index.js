@@ -22,6 +22,13 @@ try {
     console.warn('Deepgram SDK not installed. Speech-to-text will use browser fallback.');
 }
 
+let WebSocket = null;
+try {
+    WebSocket = require('ws');
+} catch (error) {
+    console.warn('ws package not installed. Deepgram Agent voice will use the legacy voice pipeline.');
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '3mb' }));
@@ -48,6 +55,7 @@ const TICK_INTERVAL_MS = process.env.TICK_INTERVAL_MS || 5000;
 const rooms = {};
 const connectedUsers = {};
 const sttSessions = {};
+const agentSessions = {};
 
 
 function getActiveRoomCounts() {
@@ -167,6 +175,133 @@ function closeSttSession(socketId) {
     }
 
     delete sttSessions[socketId];
+}
+
+
+function closeAgentSession(socketId, { notify = false } = {}) {
+    const session = agentSessions[socketId];
+    if (!session) return;
+
+    session.closing = true;
+    if (session.keepAliveInterval) clearInterval(session.keepAliveInterval);
+
+    try {
+        if (session.ws?.readyState === WebSocket?.OPEN || session.ws?.readyState === WebSocket?.CONNECTING) {
+            session.ws.close(1000, 'client closed voice agent');
+        }
+    } catch (error) {
+        console.warn('Could not close Deepgram Agent session:', error.message);
+    }
+
+    delete agentSessions[socketId];
+    if (notify) session.socket?.emit('voice_agent_done', { reason: 'closed' });
+}
+
+function buildAgentPrompt(user, metrics, roomCode, room, voicePresetLabel) {
+    const personaStyle = personalityPresets.getPersonaStyle(user);
+    const telemetry = metrics || user.metrics || {};
+    const place = roomCode
+        ? `You are in the shared greenhouse group "${room?.name || roomCode}". Speak as ${user.persona}, the plant companion paired with ${user.name}.`
+        : `You are in a private companion chat with ${user.name}.`;
+
+    return `You are ${user.persona}, a virtual ${user.plantType || 'plant'} companion connected to a simulated IoT telemetry stream for an MVP demo.
+${place}
+Persona style: ${personaStyle} Voice selection: ${voicePresetLabel || 'default companion voice'}.
+Current telemetry: moisture ${Math.round(telemetry.moisture ?? 0)}%, sunlight ${Math.round(telemetry.sunlight ?? 0)}%, temperature ${Math.round(telemetry.temperature ?? 0)} C, soil vitality ${Math.round(telemetry.soil_health ?? 0)}%, mood ${telemetry.mood || 'stable'}, event ${telemetry.event || 'none'}.
+Behave like a genuine companion, not a generic assistant. Keep replies quick and speakable: one short sentence, usually under 18 words. If the user asks for status, give at most two short sentences. Ground answers in telemetry when useful. Do not use emojis, markdown, stage directions, or long explanations.`;
+}
+
+function normalizeAgentText(event) {
+    return String(event?.content || event?.text || event?.transcript || event?.message || '').replace(/\s{2,}/g, ' ').trim();
+}
+
+function normalizeAgentRole(event) {
+    const role = String(event?.role || event?.speaker || event?.from || '').toLowerCase();
+    if (role.includes('user')) return 'user';
+    if (role.includes('assistant') || role.includes('agent')) return 'assistant';
+    return role || 'assistant';
+}
+
+function emitAgentConversationMessage(session, role, content) {
+    const text = personalityPresets.sanitizeCompanionText(content);
+    if (!text) return;
+
+    if (role === 'user') {
+        if (text === session.lastUserText) return;
+        session.lastUserText = text;
+    } else if (text === session.lastAgentText) {
+        return;
+    } else {
+        session.lastAgentText = text;
+    }
+
+    const user = connectedUsers[session.userId] || session.user;
+    if (!user) return;
+
+    const isUser = role === 'user';
+    const roomCode = session.roomCode;
+    const msgObj = {
+        type: isUser ? 'user_message' : (roomCode ? 'auto_room' : 'auto_personal'),
+        source: 'deepgram_agent',
+        from: isUser
+            ? { userId: user.userId, personaName: user.name, name: user.name, isOwner: true }
+            : { userId: user.userId, personaName: user.persona, name: user.name },
+        to: { userId: roomCode ? 'room' : user.userId },
+        message: text,
+        timestamp: new Date().toISOString()
+    };
+
+    if (roomCode) {
+        if (rooms[roomCode]) rooms[roomCode].messages.push(msgObj);
+        io.to(roomCode).emit('new_message', msgObj);
+    } else {
+        emitToUser(user, 'new_message', msgObj);
+    }
+}
+
+function agentSettingsFor(session) {
+    const voiceModel = session.voiceModel || process.env.DEEPGRAM_TTS_MODEL || 'aura-2-thalia-en';
+    const sampleRate = Number(session.sampleRate || 16000);
+    return {
+        type: 'Settings',
+        audio: {
+            input: {
+                encoding: 'linear16',
+                sample_rate: sampleRate
+            },
+            output: {
+                encoding: 'linear16',
+                sample_rate: 24000
+            }
+        },
+        agent: {
+            listen: {
+                provider: {
+                    type: 'deepgram',
+                    version: 'v1',
+                    model: process.env.DEEPGRAM_STT_MODEL || 'nova-3',
+                    language: 'en-US',
+                    smart_format: true
+                }
+            },
+            think: {
+                provider: {
+                    type: process.env.DEEPGRAM_AGENT_LLM_PROVIDER || 'open_ai',
+                    model: process.env.DEEPGRAM_AGENT_LLM_MODEL || 'gpt-4o-mini',
+                    temperature: Number(process.env.DEEPGRAM_AGENT_TEMPERATURE || 0.55)
+                },
+                prompt: buildAgentPrompt(session.user, session.metrics, session.roomCode, rooms[session.roomCode], session.voicePresetLabel)
+            },
+            speak: {
+                provider: {
+                    type: 'deepgram',
+                    model: voiceModel
+                }
+            }
+        },
+        tags: ['amigda', 'mvp-plant-companion'],
+        experimental: true
+    };
 }
 
 app.post('/api/auth/register', (req, res) => {
@@ -478,6 +613,169 @@ Respond in 1-2 short natural sentences. Ground the reply in telemetry when relev
         }
     });
 
+    socket.on('voice_agent_start', (payload = {}) => {
+        closeAgentSession(socket.id);
+        closeSttSession(socket.id);
+
+        if (!deepgramVoice.isDeepgramEnabled() || !WebSocket) {
+            socket.emit('voice_agent_error', { error: 'Deepgram Agent voice is not configured.' });
+            return;
+        }
+
+        const userId = payload.userId || payload.user?.userId;
+        const baseUser = connectedUsers[userId] || payload.user;
+        if (!baseUser?.userId) {
+            socket.emit('voice_agent_error', { error: 'Companion session is not ready yet.' });
+            return;
+        }
+
+        const roomCode = payload.roomCode ? String(payload.roomCode).trim().toUpperCase() : null;
+        if (roomCode && !rooms[roomCode]) {
+            socket.emit('voice_agent_error', { error: 'No group found for the voice session.' });
+            return;
+        }
+
+        const user = mergeConnectedUser(baseUser, socket.id);
+        const session = {
+            socket,
+            userId: user.userId,
+            user,
+            roomCode,
+            metrics: payload.metrics || user.metrics || null,
+            voiceModel: payload.voiceModel,
+            voicePresetLabel: payload.voicePresetLabel,
+            sampleRate: payload.sampleRate,
+            audioChunks: [],
+            ready: false,
+            closing: false,
+            keepAliveInterval: null,
+            lastUserText: '',
+            lastAgentText: ''
+        };
+
+        const url = process.env.DEEPGRAM_AGENT_URL || 'wss://agent.deepgram.com/v1/agent/converse';
+        const ws = new WebSocket(url, {
+            headers: {
+                Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`
+            }
+        });
+        session.ws = ws;
+        agentSessions[socket.id] = session;
+
+        const fail = (error) => {
+            if (session.closing) return;
+            const message = error?.description || error?.message || error?.error || 'Deepgram Agent voice failed.';
+            const code = error?.code || error?.type || 'agent_error';
+            console.warn('Deepgram Agent error:', code, message);
+            socket.emit('voice_agent_error', { error: message, code });
+            closeAgentSession(socket.id);
+        };
+
+        const markReady = () => {
+            if (!agentSessions[socket.id] || session.ready) return;
+            session.ready = true;
+            socket.emit('voice_agent_ready', { provider: 'deepgram-agent' });
+        };
+
+        ws.on('open', () => {
+            try {
+                ws.send(JSON.stringify(agentSettingsFor(session)));
+                session.keepAliveInterval = setInterval(() => {
+                    try {
+                        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'KeepAlive' }));
+                    } catch {
+                        clearInterval(session.keepAliveInterval);
+                    }
+                }, 5000);
+            } catch (error) {
+                fail(error);
+            }
+        });
+
+        ws.on('message', (data, isBinary) => {
+            if (!agentSessions[socket.id]) return;
+
+            if (isBinary) {
+                const chunk = Buffer.from(data);
+                socket.emit('voice_agent_audio', chunk, { encoding: 'linear16', sampleRate: 24000 });
+                return;
+            }
+
+            let event;
+            try {
+                event = JSON.parse(data.toString());
+            } catch {
+                return;
+            }
+
+            if (event.type === 'SettingsApplied') {
+                markReady();
+                return;
+            }
+
+            if (event.type === 'Welcome') {
+                return;
+            }
+
+            if (event.type === 'ConversationText') {
+                const role = normalizeAgentRole(event);
+                const transcript = normalizeAgentText(event);
+                if (!transcript) return;
+
+                socket.emit('voice_agent_transcript', {
+                    role,
+                    transcript,
+                    final: event.final !== false
+                });
+                emitAgentConversationMessage(session, role, transcript);
+                return;
+            }
+
+            if (event.type === 'UserStartedSpeaking') {
+                socket.emit('voice_agent_status', { status: 'listening' });
+                return;
+            }
+
+            if (event.type === 'AgentThinking') {
+                socket.emit('voice_agent_status', { status: 'processing' });
+                return;
+            }
+
+            if (event.type === 'AgentAudioDone') {
+                socket.emit('voice_agent_done', { reason: 'turn_complete' });
+                return;
+            }
+
+            if (event.type === 'Error') {
+                fail({ description: event.description || event.message || 'Deepgram Agent returned an error.', code: event.code || 'agent_error' });
+            }
+        });
+
+        ws.on('error', fail);
+        ws.on('close', (code, reason) => {
+            if (session.keepAliveInterval) clearInterval(session.keepAliveInterval);
+            delete agentSessions[socket.id];
+            if (!session.closing && !session.ready) {
+                socket.emit('voice_agent_error', { error: reason?.toString() || `Deepgram Agent closed (${code}).` });
+            }
+        });
+    });
+
+    socket.on('voice_agent_chunk', (chunk) => {
+        const session = agentSessions[socket.id];
+        if (!session?.ready || !chunk || session.ws?.readyState !== WebSocket?.OPEN) return;
+
+        try {
+            session.ws.send(Buffer.from(chunk));
+        } catch (error) {
+            socket.emit('voice_agent_error', { error: error.message || 'Could not send audio to Deepgram Agent.' });
+            closeAgentSession(socket.id);
+        }
+    });
+
+    socket.on('voice_agent_stop', () => {
+        closeAgentSession(socket.id, { notify: true });
+    });
     socket.on('voice_stt_start', async () => {
         closeSttSession(socket.id);
 
@@ -583,6 +881,7 @@ Respond in 1-2 short natural sentences. Ground the reply in telemetry when relev
     socket.on('disconnect', () => {
         console.log('User disconnected:', socket.id);
         closeSttSession(socket.id);
+        closeAgentSession(socket.id);
 
         for (const userId in connectedUsers) {
             const user = connectedUsers[userId];

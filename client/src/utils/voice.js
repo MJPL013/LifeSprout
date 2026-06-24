@@ -76,6 +76,9 @@ let currentPreviewAudio = null;
 let isVoiceMuted = readMutedState();
 let voiceEpoch = 0;
 let previewActive = false;
+let agentAudioContext = null;
+let agentAudioCursor = 0;
+let agentAudioSources = [];
 
 function readMutedState() {
     try {
@@ -135,6 +138,22 @@ export function getVoiceMuted() {
     return isVoiceMuted;
 }
 
+function stopAgentAudioStream() {
+    agentAudioSources.forEach(source => {
+        try {
+            source.stop();
+        } catch {
+            // Source may have already ended.
+        }
+    });
+    agentAudioSources = [];
+    agentAudioCursor = 0;
+    if (agentAudioContext && agentAudioContext.state !== 'closed') {
+        agentAudioContext.close().catch(() => {});
+    }
+    agentAudioContext = null;
+}
+
 function stopCurrentPlayback() {
     if (currentAudio) {
         currentAudio.pause();
@@ -148,11 +167,12 @@ function stopCurrentPlayback() {
         currentPreviewAudio = null;
     }
 
+    stopAgentAudioStream();
+
     if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
     }
 }
-
 export function cancelSpeech() {
     voiceEpoch += 1;
     previewActive = false;
@@ -476,4 +496,251 @@ export async function startVoiceCapture({ socket, onInterim, onFinal, onState, o
     }, 9000);
 
     return controller;
+}
+
+function floatTo16BitPcm(float32Samples) {
+    const buffer = new ArrayBuffer(float32Samples.length * 2);
+    const view = new DataView(buffer);
+    for (let i = 0; i < float32Samples.length; i++) {
+        const sample = Math.max(-1, Math.min(1, float32Samples[i]));
+        view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    }
+    return buffer;
+}
+
+function normalizeAudioArrayBuffer(audioChunk) {
+    if (!audioChunk) return null;
+    if (audioChunk instanceof ArrayBuffer) return audioChunk;
+    if (ArrayBuffer.isView(audioChunk)) {
+        return audioChunk.buffer.slice(audioChunk.byteOffset, audioChunk.byteOffset + audioChunk.byteLength);
+    }
+    return null;
+}
+
+async function playAgentAudioBuffer(audioChunk, meta = {}) {
+    if (!audioChunk || isVoiceMuted) return;
+
+    const arrayBuffer = normalizeAudioArrayBuffer(audioChunk);
+    if (!arrayBuffer || arrayBuffer.byteLength < 2) return;
+
+    const header = new Uint8Array(arrayBuffer.slice(0, 4));
+    const isWav = String.fromCharCode(...header) === 'RIFF';
+    if (isWav) {
+        const blob = new Blob([arrayBuffer], { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(blob);
+        currentAudio = new Audio(audioUrl);
+        currentAudio.onended = () => URL.revokeObjectURL(audioUrl);
+        await currentAudio.play();
+        return;
+    }
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    if (!agentAudioContext || agentAudioContext.state === 'closed') {
+        agentAudioContext = new AudioContextClass();
+        agentAudioCursor = 0;
+    }
+    if (agentAudioContext.state === 'suspended') await agentAudioContext.resume();
+
+    const sampleRate = Number(meta.sampleRate || meta.sample_rate || 24000);
+    const int16 = new Int16Array(arrayBuffer.slice(0, arrayBuffer.byteLength - (arrayBuffer.byteLength % 2)));
+    if (!int16.length) return;
+
+    const buffer = agentAudioContext.createBuffer(1, int16.length, sampleRate);
+    const output = buffer.getChannelData(0);
+    for (let i = 0; i < int16.length; i++) {
+        output[i] = Math.max(-1, Math.min(1, int16[i] / 32768));
+    }
+
+    const source = agentAudioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(agentAudioContext.destination);
+    source.onended = () => {
+        agentAudioSources = agentAudioSources.filter(item => item !== source);
+    };
+
+    const startAt = Math.max(agentAudioContext.currentTime + 0.035, agentAudioCursor || 0);
+    source.start(startAt);
+    agentAudioCursor = startAt + buffer.duration;
+    agentAudioSources.push(source);
+}
+export async function startVoiceAgentCapture({
+    socket,
+    user,
+    metrics,
+    roomCode = null,
+    voicePreset,
+    onInterim,
+    onFinal,
+    onAgent,
+    onState,
+    onStatus,
+    onError
+}) {
+    cancelSpeech();
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!socket?.connected || !navigator.mediaDevices || !AudioContextClass) return null;
+
+    let stream = null;
+    let audioContext = null;
+    let source = null;
+    let processor = null;
+    let stopped = false;
+    let ready = false;
+    let settled = false;
+    let readyTimeout = null;
+    let readySocketHandler = null;
+    let errorSocketHandler = null;
+
+    const cleanup = ({ notify = false, emitStop = true } = {}) => {
+        socket.off('voice_agent_ready', readySocketHandler || handleReady);
+        socket.off('voice_agent_transcript', handleTranscript);
+        socket.off('voice_agent_audio', handleAudio);
+        socket.off('voice_agent_status', handleStatus);
+        socket.off('voice_agent_done', handleDone);
+        socket.off('voice_agent_error', errorSocketHandler || handleError);
+        if (readyTimeout) clearTimeout(readyTimeout);
+        if (processor) processor.disconnect();
+        if (source) source.disconnect();
+        processor = null;
+        source = null;
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        stream = null;
+        if (audioContext && audioContext.state !== 'closed') audioContext.close().catch(() => {});
+        audioContext = null;
+        if (emitStop && socket.connected) socket.emit('voice_agent_stop');
+        if (notify) onState?.(false);
+    };
+
+    const controller = {
+        provider: 'deepgram-agent',
+        stop: () => {
+            stopped = true;
+            cleanup({ notify: true });
+        }
+    };
+
+    const startProcessor = async () => {
+        if (!audioContext || !stream || processor) return;
+        if (audioContext.state === 'suspended') await audioContext.resume();
+        source = audioContext.createMediaStreamSource(stream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+        processor.onaudioprocess = (event) => {
+            if (stopped || !ready || !socket.connected) return;
+            const input = event.inputBuffer.getChannelData(0);
+            socket.emit('voice_agent_chunk', floatTo16BitPcm(input));
+        };
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+    };
+
+    function resolveOnce(value, resolve) {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+    }
+
+    function handleReady() {
+        if (stopped || ready) return;
+        ready = true;
+        if (readyTimeout) clearTimeout(readyTimeout);
+        onStatus?.('listening');
+        onState?.(true);
+        startProcessor().catch(error => handleError({ error: error.message || 'Could not start microphone stream.' }));
+    }
+
+    function handleTranscript(data = {}) {
+        const transcript = String(data.transcript || '').replace(/\s{2,}/g, ' ').trim();
+        if (!transcript) return;
+
+        if (data.role === 'user') {
+            onInterim?.(transcript);
+            onFinal?.(transcript, { provider: 'deepgram-agent', speechFinal: true, noSubmit: true });
+            onStatus?.('processing');
+        } else {
+            onAgent?.(transcript);
+            onStatus?.('speaking');
+        }
+    }
+
+    function handleStatus(data = {}) {
+        onStatus?.(data.status || 'listening');
+    }
+
+    function handleDone() {
+        if (stopped) return;
+        onStatus?.('listening');
+        onState?.(true);
+    }
+
+    async function handleAudio(audioBuffer, meta = {}) {
+        try {
+            await playAgentAudioBuffer(audioBuffer, meta);
+        } catch (error) {
+            console.warn('Deepgram Agent audio playback failed:', error.message);
+        }
+    }
+
+    function handleError(data = {}) {
+        if (stopped) return;
+        const message = data.error || 'Deepgram Agent voice failed.';
+        cleanup({ notify: true, emitStop: false });
+        onError?.(message);
+    }
+
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+        audioContext = new AudioContextClass();
+    } catch (error) {
+        cleanup({ emitStop: false });
+        onError?.(error.message || 'Microphone permission was denied.');
+        return null;
+    }
+
+    return await new Promise((resolve) => {
+        const startFailed = (message) => {
+            if (ready) {
+                handleError({ error: message });
+                return;
+            }
+            cleanup({ notify: false, emitStop: true });
+            onError?.(message);
+            resolveOnce(null, resolve);
+        };
+
+        const readyHandler = () => {
+            handleReady();
+            resolveOnce(controller, resolve);
+        };
+
+        const errorHandler = (data = {}) => startFailed(data.error || 'Deepgram Agent voice failed.');
+        readySocketHandler = readyHandler;
+        errorSocketHandler = errorHandler;
+
+        socket.on('voice_agent_ready', readyHandler);
+        socket.on('voice_agent_transcript', handleTranscript);
+        socket.on('voice_agent_audio', handleAudio);
+        socket.on('voice_agent_status', handleStatus);
+        socket.on('voice_agent_done', handleDone);
+        socket.on('voice_agent_error', errorHandler);
+
+        readyTimeout = setTimeout(() => startFailed('Deepgram Agent did not open in time.'), 9000);
+        socket.emit('voice_agent_start', {
+            userId: user?.userId,
+            user,
+            metrics,
+            roomCode,
+            sampleRate: Math.round(audioContext.sampleRate || 16000),
+            voiceModel: voicePreset?.model,
+            voicePresetLabel: voicePreset?.label
+        });
+    });
 }
