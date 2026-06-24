@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import MyCompanion from './MyCompanion';
 import RoomFeed from './RoomFeed';
+import PixelPlantPet, { getDefaultSpriteId } from './PixelPlantPet';
 import VoiceSelector from './VoiceSelector';
 import MicButton from './MicButton';
 import VoiceTurnPanel from './VoiceTurnPanel';
@@ -39,6 +40,18 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
         photoUrl: ''
     });
     const [roomName, setRoomName] = useState(roomMeta?.name || localStorage.getItem('symbio_room_name_v2') || 'Loading group...');
+    const [selectedSpriteId] = useState(() => {
+        try {
+            const stored = localStorage.getItem('amigda_sprite_' + user.userId + '_v1');
+            if (stored === 'none' || stored === '') return null;
+            if (stored === 'custom') return getDefaultSpriteId(user.userId);
+            if (stored) return stored;
+            if (localStorage.getItem('amigda_spirit_enabled_' + user.userId + '_v1') === 'false') return null;
+            return getDefaultSpriteId(user.userId);
+        } catch {
+            return getDefaultSpriteId(user.userId);
+        }
+    });
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [showMembersPanel, setShowMembersPanel] = useState(false);
     const [inspectedMember, setInspectedMember] = useState(null);
@@ -454,6 +467,15 @@ export default function Dashboard({ user, roomCode, roomMeta, onLeave }) {
 
                 </div>
             </div>
+
+            <PixelPlantPet
+                mood={isListening ? 'listening' : (micStatus === 'processing' ? 'thinking' : (metrics?.mood === 'critical' || metrics?.mood === 'struggling' ? 'concerned' : 'idle'))}
+                user={user}
+                metrics={metrics}
+                muted={isMuted}
+                selectedSpriteId={selectedSpriteId}
+                onClick={() => setLatestBotMessage(`${user.persona} is present in the room with you.`)}
+            />
 
             {['starting', 'listening', 'processing', 'stopping'].includes(micStatus) && (
                 <VoiceTurnPanel status={micStatus} transcript={voiceTranscript || inputValue} onCancel={stopVoiceInput} mode="stt" />

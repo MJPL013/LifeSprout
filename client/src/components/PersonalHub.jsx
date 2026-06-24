@@ -3,12 +3,15 @@ import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import MyCompanion from './MyCompanion';
 import RoomFeed from './RoomFeed';
+import PixelPlantPet, { getDefaultSpriteId, getSpriteVariants } from './PixelPlantPet';
 import VoiceSelector from './VoiceSelector';
 import MicButton from './MicButton';
 import VoiceTurnPanel from './VoiceTurnPanel';
 import { LogOut, Users, Volume2, VolumeX } from 'lucide-react';
 import RoomSetup from './RoomSetup';
 import { getPlantImageSrc } from '../utils/plants';
+import { classifyBotPetMood, classifyUserPetMood, getPetSoundEvent, getRestingPetMood } from '../utils/petEmotion';
+import { playPetSound } from '../utils/petSounds';
 import {
     speakMessage,
     startVoiceCapture,
@@ -21,6 +24,8 @@ import {
     storeVoicePreset
 } from '../utils/voice';
 
+
+const SPRITE_VARIANTS = getSpriteVariants();
 
 export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     const socketRef = useRef(null);
@@ -37,6 +42,21 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     const [voicePresetId, setVoicePresetId] = useState(() => getStoredVoicePreset(user.userId).id);
     const [latestBotMessage, setLatestBotMessage] = useState('Direct connection established...');
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+    const [petMood, setPetMood] = useState(() => getRestingPetMood(user.metrics?.mood));
+    const [showSpriteCatalogue, setShowSpriteCatalogue] = useState(false);
+    const [selectedSpriteId, setSelectedSpriteId] = useState(() => {
+        try {
+            const legacyEnabled = localStorage.getItem('amigda_spirit_enabled_' + user.userId + '_v1');
+            const stored = localStorage.getItem('amigda_sprite_' + user.userId + '_v1');
+            if (stored === 'none' || stored === '') return null;
+            if (stored === 'custom') return getDefaultSpriteId(user.userId);
+            if (stored) return stored;
+            if (legacyEnabled === 'false') return null;
+            return getDefaultSpriteId(user.userId);
+        } catch {
+            return getDefaultSpriteId(user.userId);
+        }
+    });
     const selectedVoicePreset = VOICE_PRESETS.find(preset => preset.id === voicePresetId) || getStoredVoicePreset(user.userId);
     const feedEndRef = useRef(null);
     const voiceControllerRef = useRef(null);
@@ -46,6 +66,9 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     const stopMicTimeoutRef = useRef(null);
     const voiceSubmitTimeoutRef = useRef(null);
     const lastVoiceSentRef = useRef('');
+    const petTimeoutRef = useRef(null);
+    const lastPetUserRef = useRef({ text: '', actionType: '' });
+    const metricsRef = useRef(metrics);
 
     useEffect(() => {
         isMutedRef.current = isMuted;
@@ -55,6 +78,13 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     useEffect(() => {
         voicePresetRef.current = selectedVoicePreset;
     }, [selectedVoicePreset]);
+
+    useEffect(() => {
+        metricsRef.current = metrics;
+        if (!petTimeoutRef.current) {
+            setPetMood(getRestingPetMood(metrics?.mood));
+        }
+    }, [metrics]);
 
     useEffect(() => {
         const newSocket = io(SOCKET_URL);
@@ -77,6 +107,15 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
             // Check if it's a message from the plant to update subtitles
             if (msg.type?.startsWith('auto') || msg.from?.userId === user.userId) {
                 setLatestBotMessage(msg.message);
+                if (msg.type?.startsWith('auto')) {
+                    const nextPetMood = classifyBotPetMood({
+                        message: msg.message,
+                        lastUserText: lastPetUserRef.current.text,
+                        actionType: lastPetUserRef.current.actionType
+                    });
+                    showPetMood(nextPetMood, { duration: nextPetMood === 'comforting' ? 3400 : 2600 });
+                    lastPetUserRef.current = { text: '', actionType: '' };
+                }
                 if (!isMutedRef.current && msg.type?.startsWith('auto') && msg.source !== 'deepgram_agent') {
                     speakMessage(msg.message, {
                         persona: user.persona,
@@ -91,6 +130,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         return () => {
             if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
             if (voiceSubmitTimeoutRef.current) clearTimeout(voiceSubmitTimeoutRef.current);
+            if (petTimeoutRef.current) clearTimeout(petTimeoutRef.current);
             voiceControllerRef.current?.stop();
             voiceControllerRef.current = null;
             socketRef.current = null;
@@ -110,18 +150,58 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         }
     };
 
+    const showPetMood = (mood, options = {}) => {
+        const { duration = 2400, soundEvent = getPetSoundEvent(mood) } = options;
+        if (petTimeoutRef.current) clearTimeout(petTimeoutRef.current);
+
+        setPetMood(mood);
+        if (soundEvent) playPetSound(soundEvent, { muted: isMutedRef.current });
+
+        if (duration > 0) {
+            petTimeoutRef.current = setTimeout(() => {
+                petTimeoutRef.current = null;
+                setPetMood(getRestingPetMood(metricsRef.current?.mood));
+            }, duration);
+        } else {
+            petTimeoutRef.current = null;
+        }
+    };
+
+    const handlePetClick = () => {
+        showPetMood('happy', { duration: 1300, soundEvent: 'happy' });
+    };
+
+    const handleSpriteSelect = (spriteId) => {
+        const nextSpriteId = selectedSpriteId === spriteId ? null : spriteId;
+        setSelectedSpriteId(nextSpriteId);
+        try {
+            localStorage.setItem('amigda_sprite_' + user.userId + '_v1', nextSpriteId || '');
+            localStorage.setItem('amigda_spirit_enabled_' + user.userId + '_v1', nextSpriteId ? 'true' : 'false');
+        } catch {
+            // Local storage may be unavailable in private contexts.
+        }
+        if (nextSpriteId) showPetMood('happy', { duration: 1400, soundEvent: 'happy' });
+    };
+
     const sendManualMessage = (actionType, text = '') => {
+        const cleanText = String(text || '').trim();
+        lastPetUserRef.current = { text: cleanText, actionType };
+        const nextPetMood = classifyUserPetMood({ text: cleanText, actionType });
+        showPetMood(nextPetMood, {
+            duration: nextPetMood === 'comforting' ? 2600 : 1800,
+            soundEvent: nextPetMood === 'happy' ? 'happy' : null
+        });
+
         if (socketRef.current) {
             socketRef.current.emit('send_manual_message', {
                 roomCode: null,
                 fromUserId: user.userId,
                 actionType,
-                text,
+                text: cleanText,
                 mood: metrics?.mood || 'stable'
             });
         }
     };
-
     const handleMuteToggle = () => {
         const nextMuted = !isMuted;
         setIsMuted(nextMuted);
@@ -142,6 +222,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         voiceControllerRef.current?.stop();
         voiceControllerRef.current = null;
         setIsListening(false);
+        showPetMood(getRestingPetMood(metricsRef.current?.mood), { duration: 0, soundEvent: null });
         stopMicTimeoutRef.current = setTimeout(() => setMicStatus('idle'), 260);
     };
 
@@ -181,6 +262,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         setIsListening(true);
         setMicStatus('starting');
         setVoiceMode('agent');
+        showPetMood('listening', { duration: 0, soundEvent: 'listen-on' });
 
         try {
             const agentController = await startVoiceAgentCapture({
@@ -191,15 +273,25 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                 onInterim: (transcript) => {
                     setInputValue(transcript);
                     setVoiceTranscript(transcript);
+                    showPetMood('listening', { duration: 0, soundEvent: null });
                 },
                 onFinal: (transcript) => {
                     setInputValue(transcript);
                     setVoiceTranscript(transcript);
                     setMicStatus('processing');
+                    lastPetUserRef.current = { text: transcript, actionType: 'voice' };
+                    const nextPetMood = classifyUserPetMood({ text: transcript, actionType: 'voice' });
+                    showPetMood(nextPetMood === 'comforting' ? 'comforting' : 'thinking', { duration: 1800, soundEvent: null });
                 },
                 onAgent: (transcript) => {
                     setLatestBotMessage(transcript);
                     setMicStatus('processing');
+                    const nextPetMood = classifyBotPetMood({
+                        message: transcript,
+                        lastUserText: lastPetUserRef.current.text,
+                        actionType: lastPetUserRef.current.actionType
+                    });
+                    showPetMood(nextPetMood, { duration: nextPetMood === 'comforting' ? 3400 : 2600 });
                 },
                 onStatus: (status) => {
                     setMicStatus(status === 'processing' || status === 'speaking' ? 'processing' : 'listening');
@@ -207,6 +299,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                 onState: (active) => {
                     setIsListening(active);
                     setMicStatus(active ? 'listening' : 'idle');
+                    if (!active) showPetMood(getRestingPetMood(metricsRef.current?.mood), { duration: 0, soundEvent: null });
                 },
                 onError: (message) => {
                     console.warn('Deepgram Agent unavailable:', message);
@@ -315,6 +408,14 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                             Groups
                         </button>
                         <button
+                            onClick={() => setShowSpriteCatalogue(true)}
+                            className={`flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border cursor-pointer ${selectedSpriteId ? "text-primary bg-primary/5 border-primary/20 hover:bg-primary/10" : "text-outline bg-white/50 border-outline-variant/40 hover:text-primary"}`}
+                            title="Choose your spirit"
+                        >
+                            <span className="material-symbols-outlined text-xs">cruelty_free</span>
+                            Spirits
+                        </button>
+                        <button
                             onClick={handleMuteToggle}
                             className={`flex items-center justify-center w-8 h-8 rounded-full text-[10px] font-bold uppercase transition-all border cursor-pointer ${isMuted ? 'text-critical bg-error-container/10 border-error/20' : 'text-primary bg-primary/5 border-primary/20'}`}
                             title={isMuted ? 'Unmute voice' : 'Mute voice'}
@@ -330,6 +431,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                         "{latestBotMessage}"
                     </p>
                 </div>
+
 
                 {/* Scroll Feed */}
                 <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4 bg-white/20">
@@ -400,6 +502,54 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
 
                 </div>
             </div>
+
+            <PixelPlantPet
+                mood={petMood}
+                user={user}
+                metrics={metrics}
+                muted={isMuted}
+                selectedSpriteId={selectedSpriteId}
+                onClick={handlePetClick}
+            />
+
+            {showSpriteCatalogue && (
+                <div className="fixed inset-0 z-[80] pointer-events-auto" onClick={() => setShowSpriteCatalogue(false)}>
+                    <div className="garden-sprite-panel pointer-events-auto" onClick={(event) => event.stopPropagation()}>
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                            <div>
+                                <div className="text-[9px] font-bold uppercase tracking-widest text-outline">Companion Spirits</div>
+                                <h4 className="font-display text-base font-bold text-primary leading-tight">Choose Your Spirit</h4>
+                                <p className="text-[10px] text-on-surface-variant leading-snug mt-1">Pick the little companion that wanders with your plant session.</p>
+                            </div>
+                            <button type="button" onClick={() => setShowSpriteCatalogue(false)} className="garden-sprite-mini-button" title="Close workshop">
+                                <span className="material-symbols-outlined text-sm">close</span>
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                            {SPRITE_VARIANTS.map(sprite => (
+                                <button
+                                    key={sprite.id}
+                                    type="button"
+                                    onClick={() => handleSpriteSelect(sprite.id)}
+                                    className={`garden-sprite-choice ${sprite.id === selectedSpriteId ? "garden-sprite-choice--active" : ""}`}
+                                >
+                                    <span className={`garden-sprite-choice-preview garden-sprite-choice-preview--${sprite.id}`} aria-hidden="true">
+                                        <span />
+                                    </span>
+                                    <span className="min-w-0 flex flex-col gap-0.5">
+                                        <span className="font-bold text-[11px] text-on-surface">{sprite.label}</span>
+                                        <span className="text-[9px] leading-snug text-on-surface-variant">
+                                            {sprite.id === selectedSpriteId ? 'Selected - tap again to hide' : sprite.note}
+                                        </span>
+                                    </span>
+                                </button>
+                            ))}
+
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {['starting', 'listening', 'processing', 'stopping'].includes(micStatus) && (
                 <VoiceTurnPanel status={micStatus} transcript={voiceTranscript || inputValue} onCancel={stopVoiceInput} mode={voiceMode} />

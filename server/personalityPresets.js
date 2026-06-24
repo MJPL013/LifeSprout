@@ -28,6 +28,16 @@ const FUN_FACTS = {
     ]
 };
 
+const INTENT_PATTERNS = {
+    crisis_support: /\b(kill myself|suicide|suicidal|end my life|self[-\s]?harm|hurt myself|don't want to live|do not want to live)\b/i,
+    emotional_support: /\b(sad|lonely|alone|depressed|crying|cry|upset|heartbroken|hurt|bad day|rough day|not okay|not ok|stressed|stress|anxious|anxiety|scared|afraid|overwhelmed|tired of|exhausted|burned out|burnt out|miss them|i feel empty|i feel low|i am low|feeling low|i feel down|i am down)\b/i,
+    plant_status: /\b(status|stats|health|healthy|moisture|sunlight|temperature|temp|soil|vitality|how are you|how's my plant|how is my plant|are you okay|are you ok|device|telemetry)\b/i,
+    plant_care: /\b(water|watering|fertilize|fertilizer|repot|prune|leaf|leaves|brown|yellow|wilting|drooping|care|what should i do|fix my plant)\b/i,
+    playful: /\b(joke|funny|roast|make me laugh|cheer me up|fun fact|fact)\b/i,
+    greeting: /\b(hi|hello|hey|good morning|good night|gm|gn)\b/i,
+    bonding: /\b(thank you|thanks|love you|miss you|you are cute|youre cute|good plant|proud of you)\b/i
+};
+
 function sanitizeCompanionText(text) {
     return String(text || '')
         .replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '')
@@ -42,7 +52,7 @@ function normalisePersona(persona) {
 
 function getPersonaStyle(user = {}) {
     const persona = normalisePersona(user.persona);
-    return PERSONA_STYLES[persona] || 'warm, concise, grounded in telemetry, and companion-like';
+    return PERSONA_STYLES[persona] || 'warm, emotionally attentive, concise, and companion-like';
 }
 
 function pick(items, seed = '') {
@@ -68,6 +78,123 @@ function getFact(user = {}, metrics = {}) {
     const plantKey = String(user.plantType || '').toLowerCase();
     const facts = FUN_FACTS[plantKey] || FUN_FACTS.default;
     return pick(facts, actionSeed('fact', user, metrics));
+}
+
+function getConversationIntent({ text = '', actionType = '' } = {}) {
+    const combined = `${actionType || ''} ${text || ''}`.trim();
+    if (actionType === 'check_status') return 'plant_status';
+    if (actionType === 'joke' || actionType === 'cheer') return 'playful';
+    if (!combined) return 'general_companion';
+
+    if (INTENT_PATTERNS.crisis_support.test(combined)) return 'crisis_support';
+    if (INTENT_PATTERNS.emotional_support.test(combined)) return 'emotional_support';
+    if (INTENT_PATTERNS.plant_care.test(combined)) return 'plant_care';
+    if (INTENT_PATTERNS.plant_status.test(combined)) return 'plant_status';
+    if (INTENT_PATTERNS.playful.test(combined)) return 'playful';
+    if (INTENT_PATTERNS.greeting.test(combined)) return 'greeting';
+    if (INTENT_PATTERNS.bonding.test(combined)) return 'bonding';
+    return 'general_companion';
+}
+
+function getCompanionBehaviorRules({ intent = 'general_companion', isLiveVoice = false } = {}) {
+    const shared = [
+        'The human message is the main signal. Telemetry is background context, not the default topic.',
+        'Never pivot to your own plant health when the user is sharing feelings, unless they explicitly ask for status.',
+        'Sound like a caring companion friend with a plant-device perspective, not a generic assistant or status bot.',
+        'Use the user name sparingly. Avoid therapy jargon, lists, markdown, emojis, and stage directions.',
+        'Keep replies speakable and short: usually 1-2 sentences.'
+    ];
+
+    const intentRules = {
+        crisis_support: [
+            'The user may be unsafe. Be calm, direct, and caring.',
+            'Encourage them to contact local emergency help or a trusted person now.',
+            'Do not joke, do not discuss telemetry, and do not make the moment about the plant.'
+        ],
+        emotional_support: [
+            'Validate the feeling first in natural friend language.',
+            'Stay with the human experience. Offer one gentle next step or one soft question.',
+            'A tiny plant metaphor is okay only if it supports the user; do not mention moisture, sunlight, temperature, soil, or plant mood.'
+        ],
+        plant_status: [
+            'The user is asking about the plant/device. Give a clear telemetry read in human language.',
+            'Mention only the most important 1-2 stats and one practical next step if needed.'
+        ],
+        plant_care: [
+            'The user wants care help. Give one practical suggestion grounded in telemetry and plant type.',
+            'Avoid over-explaining. Ask one follow-up only if needed.'
+        ],
+        playful: [
+            'Be playful and persona-forward, but still brief.',
+            'Only bring in telemetry if the action is explicitly status-related or the joke/fact needs it.'
+        ],
+        greeting: [
+            'Greet them warmly and invite a real conversation.',
+            'Do not immediately recite telemetry.'
+        ],
+        bonding: [
+            'Respond with warmth and a little personality.',
+            'Make the relationship feel remembered without becoming dramatic.'
+        ],
+        general_companion: [
+            'Answer the user directly first.',
+            'If the message is ambiguous, respond warmly and ask a simple follow-up instead of reporting telemetry.'
+        ],
+        live_voice: [
+            'For every live voice turn, infer whether the user is emotional, asking status, asking care, playful, or just chatting.',
+            'If they share feelings, emotional support rules override telemetry rules.',
+            'Keep turns quick and conversational so the voice experience feels continuous.'
+        ]
+    };
+
+    return [...shared, ...(intentRules[isLiveVoice ? 'live_voice' : intent] || intentRules.general_companion)]
+        .map(rule => `- ${rule}`)
+        .join('\n');
+}
+
+function getFallbackResponse({ intent, actionType, user = {}, metrics = {}, text = '' }) {
+    const owner = user.name || 'friend';
+    const persona = user.persona || 'Companion';
+    const mood = metrics.mood || 'stable';
+    const seed = actionSeed(`${intent}:${text || actionType}`, user, metrics);
+
+    const templates = {
+        crisis_support: [
+            `${owner}, I am really glad you said that out loud. Please contact local emergency help or someone you trust right now; stay with me while you do.`,
+            `${owner}, this sounds serious, and you should not hold it alone. Please reach a trusted person or emergency help now.`
+        ],
+        emotional_support: [
+            `${owner}, I am here with you. That sounds heavy, and you do not have to make it neat before I listen.`,
+            `${owner}, I am staying close. Tell me the smallest piece of what made it feel this way.`,
+            `That sounds really hard, ${owner}. Take one slow breath with me; I am not going anywhere.`
+        ],
+        plant_status: [
+            `${owner}, here is the clean read: ${statusLine(metrics)} Nothing feels urgent, but I am watching the stream closely.`,
+            `${statusLine(metrics)} My short verdict is ${mood}, responsive, and ready to keep you company.`
+        ],
+        plant_care: [
+            `${owner}, start gently: check the soil before changing anything. ${statusLine(metrics)}`,
+            `${owner}, I would adjust one thing at a time so we can see what the telemetry does next.`
+        ],
+        playful: [
+            `${owner}, I tried to write a leaf joke, but it kept branching. I am keeping it ${mood}, in my ${persona} way.`,
+            `Tiny joke from the pot: my social battery is solar powered, so cloudy days make me mysterious.`
+        ],
+        greeting: [
+            `Hey ${owner}. I am here, awake, and listening. What kind of moment are we in?`,
+            `Hi ${owner}. I am tuned in; tell me what is happening in your world.`
+        ],
+        bonding: [
+            `${owner}, that landed softly. I like being your little signal in the room.`,
+            `I am glad you said that, ${owner}. I will keep the companion light on.`
+        ],
+        general_companion: [
+            `${owner}, I am here with you. Tell me a little more, and I will stay close.`,
+            `${owner}, I heard you. Give me one more detail so I can answer in my ${persona} way.`
+        ]
+    };
+
+    return sanitizeCompanionText(pick(templates[intent] || templates.general_companion, seed));
 }
 
 function getQuickActionResponse({ actionType, user = {}, metrics = {} }) {
@@ -113,6 +240,9 @@ function getStartupGreeting(user = {}, metrics = {}) {
 module.exports = {
     sanitizeCompanionText,
     getPersonaStyle,
+    getConversationIntent,
+    getCompanionBehaviorRules,
+    getFallbackResponse,
     getQuickActionResponse,
     getStartupGreeting
 };

@@ -2,7 +2,7 @@
 
 Repository: https://github.com/MJPL013/LifeSprout.git
 
-This is the quick reference for setting up and running LifeSprout on one AWS EC2 Ubuntu instance. The longer explanation lives in `AWS_DEPLOYMENT_GUIDE.md`, but this file is the one to keep open while deploying.
+This is the quick reference for setting up and running LifeSprout on one AWS EC2 Ubuntu instance. The longer explanation lives in `AWS_DEPLOYMENT_GUIDE.md`, and the detailed HTTPS microphone/Cloudflare Tunnel notebook lives in `AWS_CLOUDFLARE_HTTPS_RUNBOOK.md`.
 
 ## 1. Launch EC2
 

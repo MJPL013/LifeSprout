@@ -203,12 +203,14 @@ function buildAgentPrompt(user, metrics, roomCode, room, voicePresetLabel) {
     const place = roomCode
         ? `You are in the shared greenhouse group "${room?.name || roomCode}". Speak as ${user.persona}, the plant companion paired with ${user.name}.`
         : `You are in a private companion chat with ${user.name}.`;
+    const behaviorRules = personalityPresets.getCompanionBehaviorRules({ isLiveVoice: true });
 
     return `You are ${user.persona}, a virtual ${user.plantType || 'plant'} companion connected to a simulated IoT telemetry stream for an MVP demo.
 ${place}
 Persona style: ${personaStyle} Voice selection: ${voicePresetLabel || 'default companion voice'}.
 Current telemetry: moisture ${Math.round(telemetry.moisture ?? 0)}%, sunlight ${Math.round(telemetry.sunlight ?? 0)}%, temperature ${Math.round(telemetry.temperature ?? 0)} C, soil vitality ${Math.round(telemetry.soil_health ?? 0)}%, mood ${telemetry.mood || 'stable'}, event ${telemetry.event || 'none'}.
-Behave like a genuine companion, not a generic assistant. Keep replies quick and speakable: one short sentence, usually under 18 words. If the user asks for status, give at most two short sentences. Ground answers in telemetry when useful. Do not use emojis, markdown, stage directions, or long explanations.`;
+Companion behavior rules:
+${behaviorRules}`;
 }
 
 function normalizeAgentText(event) {
@@ -584,17 +586,19 @@ io.on('connection', (socket) => {
             emitToUser(uA, 'new_message', userMsgObj);
         }
 
+        const intent = personalityPresets.getConversationIntent({ text, actionType });
         const presetMessage = personalityPresets.getQuickActionResponse({ actionType, user: uA, metrics: uA.metrics, text });
         const personaStyle = personalityPresets.getPersonaStyle(uA);
+        const behaviorRules = personalityPresets.getCompanionBehaviorRules({ intent });
         const prompt = `You are a virtual plant companion device in an MVP IoT simulation. Your persona is ${uA.persona}, a ${uA.plantType}.
 Persona style: ${personaStyle}.
 Your owner, ${uA.name}, just sent you this message: "${text || actionType}".
-Current telemetry stream: moisture ${uA.metrics?.moisture}%, sunlight ${uA.metrics?.sunlight}%, temperature ${uA.metrics?.temperature} C, soil vitality ${uA.metrics?.soil_health}%, mood ${uA.metrics?.mood}, event ${uA.metrics?.event || 'none'}.
-Respond in 1-2 short natural sentences. Ground the reply in telemetry when relevant. Do not use emojis, markdown, quotes, or roleplay stage directions.`;
+Detected conversation mode: ${intent}.
+Current telemetry stream, for background context only unless the mode asks for plant status or care: moisture ${uA.metrics?.moisture}%, sunlight ${uA.metrics?.sunlight}%, temperature ${uA.metrics?.temperature} C, soil vitality ${uA.metrics?.soil_health}%, mood ${uA.metrics?.mood}, event ${uA.metrics?.event || 'none'}.
+Companion behavior rules:
+${behaviorRules}`;
 
-        const fallbackStr = actionType === 'voice'
-            ? `${uA.name}, I heard you. ${text || 'Your voice came through'} is now part of my telemetry moment; I am ${uA.metrics?.mood || 'stable'} right now.`
-            : `${uA.name}, I heard you say: ${text || actionType}. My telemetry says I am ${uA.metrics?.mood || 'stable'} right now.`;
+        const fallbackStr = personalityPresets.getFallbackResponse({ intent, actionType, user: uA, metrics: uA.metrics, text });
         const translatedMessage = presetMessage || personalityPresets.sanitizeCompanionText(await aiProxy.generateResponse(prompt, fallbackStr));
 
         const aiMsgObj = {

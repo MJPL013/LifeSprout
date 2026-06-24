@@ -146,7 +146,7 @@ Update after a new push:
 bash scripts/aws_lifesprout.sh --pull
 ```
 
-For the quick operator steps, see `FINAL_AWS_DEPLOYMENT_GUIDE.md`. For the longer AWS explanation, see `AWS_DEPLOYMENT_GUIDE.md`.
+For the quick operator steps, see `FINAL_AWS_DEPLOYMENT_GUIDE.md`. For the longer AWS explanation, see `AWS_DEPLOYMENT_GUIDE.md`. For the full HTTPS microphone deployment notebook, including Cloudflare Tunnel setup and the exact issues/fixes from the EC2 run, see `AWS_CLOUDFLARE_HTTPS_RUNBOOK.md`.
 
 ## Git Hygiene
 

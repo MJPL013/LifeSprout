@@ -4,6 +4,8 @@ Repository: https://github.com/MJPL013/LifeSprout.git
 
 Quick operator runbook: `FINAL_AWS_DEPLOYMENT_GUIDE.md`
 
+HTTPS voice/microphone runbook: `AWS_CLOUDFLARE_HTTPS_RUNBOOK.md`
+
 This guide deploys LifeSprout on a single AWS EC2 Linux instance for MVP testing. The deployment uses one Node/Express process for the API, Socket.IO, Deepgram routes, and the built React frontend. nginx exposes a stable public HTTP URL on port 80, and PM2 keeps the app alive after you close the terminal.
 
 ## Deployment Model

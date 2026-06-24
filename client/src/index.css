@@ -184,3 +184,1382 @@
 .mic-level-bar:nth-child(3) {
   animation-delay: 0.22s;
 }
+@keyframes pixel-pet-idle {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.02); }
+}
+
+@keyframes pixel-pet-listening {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
+  35% { transform: translateY(-5px) rotate(-2deg) scale(1.04); }
+  70% { transform: translateY(-1px) rotate(2deg) scale(1.02); }
+}
+
+@keyframes pixel-pet-thinking {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  25% { transform: translateX(-2px) rotate(-1.5deg); }
+  75% { transform: translateX(2px) rotate(1.5deg); }
+}
+
+@keyframes pixel-pet-speaking {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  50% { transform: translateY(-1px) scaleY(1.05); }
+}
+
+@keyframes pixel-pet-happy {
+  0%, 100% { transform: translateY(0) scale(1) rotate(0deg); }
+  28% { transform: translateY(-7px) scale(1.06) rotate(-3deg); }
+  58% { transform: translateY(-2px) scale(1.03) rotate(3deg); }
+}
+
+@keyframes pixel-pet-comforting {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
+  45% { transform: translateY(3px) rotate(-1deg) scale(0.98); }
+  78% { transform: translateY(-2px) rotate(1deg) scale(1.01); }
+}
+
+@keyframes pixel-pet-concerned {
+  0%, 100% { transform: translateY(0) rotate(0deg); filter: saturate(0.9); }
+  50% { transform: translateY(2px) rotate(-1deg); filter: saturate(0.75); }
+}
+
+@keyframes pixel-pet-aura {
+  0%, 100% { opacity: 0.32; transform: scale(0.92); }
+  50% { opacity: 0.7; transform: scale(1.08); }
+}
+
+@keyframes pixel-pet-sparkle {
+  0%, 100% { opacity: 0; transform: translateY(4px) scale(0.6); }
+  45% { opacity: 1; transform: translateY(-4px) scale(1); }
+}
+
+@keyframes pixel-pet-mouth {
+  0%, 100% { transform: scaleX(0.8); opacity: 0.85; }
+  50% { transform: scaleX(1.35); opacity: 1; }
+}
+
+.pixel-pet-stage {
+  --pet-pixel: 4px;
+  --pet-leaf-light: #7baf6e;
+  --pet-leaf-dark: #396931;
+  --pet-stem: #625f46;
+  --pet-pot: #d8a35d;
+  --pet-base: #8c4f10;
+  --pet-eye: #1b1c1c;
+  --pet-aura: rgba(57, 105, 49, 0.18);
+  min-height: 72px;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid rgba(194, 201, 187, 0.24);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.46), rgba(123, 175, 110, 0.08), rgba(255, 255, 255, 0.36));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.pixel-pet--cactus {
+  --pet-leaf-light: #a8b76d;
+  --pet-leaf-dark: #5f7437;
+  --pet-stem: #396931;
+  --pet-pot: #d79a58;
+  --pet-base: #8c4f10;
+  --pet-aura: rgba(140, 79, 16, 0.16);
+}
+
+.pixel-pet--fern {
+  --pet-leaf-light: #9aa078;
+  --pet-leaf-dark: #625f46;
+  --pet-stem: #72796d;
+  --pet-pot: #d7c98d;
+  --pet-base: #8c7c4b;
+  --pet-aura: rgba(98, 95, 70, 0.16);
+}
+
+.pixel-pet--pothos {
+  --pet-leaf-light: #b8c675;
+  --pet-leaf-dark: #7baf6e;
+  --pet-stem: #396931;
+  --pet-pot: #d9bb68;
+  --pet-base: #9a7f30;
+  --pet-aura: rgba(123, 175, 110, 0.18);
+}
+
+.pixel-pet-button {
+  position: relative;
+  width: 76px;
+  height: 62px;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  isolation: isolate;
+  flex-shrink: 0;
+}
+
+.pixel-pet-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 1rem;
+}
+
+.pixel-pet-grid {
+  display: grid;
+  grid-template-columns: repeat(13, var(--pet-pixel));
+  grid-auto-rows: var(--pet-pixel);
+  gap: 1px;
+  image-rendering: pixelated;
+  transform-origin: center bottom;
+  position: relative;
+  z-index: 2;
+  filter: drop-shadow(0 8px 8px rgba(57, 105, 49, 0.14));
+}
+
+.pixel-pet-button--idle .pixel-pet-grid { animation: pixel-pet-idle 2.8s ease-in-out infinite; }
+.pixel-pet-button--listening .pixel-pet-grid { animation: pixel-pet-listening 0.92s ease-in-out infinite; }
+.pixel-pet-button--thinking .pixel-pet-grid { animation: pixel-pet-thinking 1.15s ease-in-out infinite; }
+.pixel-pet-button--speaking .pixel-pet-grid { animation: pixel-pet-speaking 0.46s ease-in-out infinite; }
+.pixel-pet-button--happy .pixel-pet-grid { animation: pixel-pet-happy 0.8s ease-in-out infinite; }
+.pixel-pet-button--comforting .pixel-pet-grid { animation: pixel-pet-comforting 2s ease-in-out infinite; }
+.pixel-pet-button--concerned .pixel-pet-grid { animation: pixel-pet-concerned 2.6s ease-in-out infinite; }
+
+.pixel-pet-cell {
+  width: var(--pet-pixel);
+  height: var(--pet-pixel);
+  border-radius: 1px;
+}
+
+.pixel-pet-cell--empty { opacity: 0; }
+.pixel-pet-cell--leaf-light { background: var(--pet-leaf-light); }
+.pixel-pet-cell--leaf-dark { background: var(--pet-leaf-dark); }
+.pixel-pet-cell--stem { background: var(--pet-stem); }
+.pixel-pet-cell--pot { background: var(--pet-pot); }
+.pixel-pet-cell--base { background: var(--pet-base); }
+.pixel-pet-cell--eye { background: var(--pet-eye); }
+.pixel-pet-cell--mouth { background: var(--pet-eye); transform-origin: center; }
+
+.pixel-pet-stage--speaking .pixel-pet-cell--mouth,
+.pixel-pet-stage--happy .pixel-pet-cell--mouth {
+  animation: pixel-pet-mouth 0.36s steps(2, end) infinite;
+}
+
+.pixel-pet-stage--comforting .pixel-pet-cell--eye,
+.pixel-pet-stage--concerned .pixel-pet-cell--eye {
+  opacity: 0.72;
+}
+
+.pixel-pet-aura {
+  position: absolute;
+  inset: 0.2rem 0.4rem;
+  background: radial-gradient(circle, var(--pet-aura), transparent 68%);
+  border-radius: 999px;
+  z-index: 0;
+  animation: pixel-pet-aura 2.4s ease-in-out infinite;
+}
+
+.pixel-pet-shadow {
+  position: absolute;
+  bottom: 0.2rem;
+  width: 44px;
+  height: 8px;
+  background: rgba(27, 28, 28, 0.08);
+  border-radius: 999px;
+  z-index: 1;
+}
+
+.pixel-pet-sparkle {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  background: #d8a35d;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75);
+  opacity: 0;
+  z-index: 3;
+}
+
+.pixel-pet-sparkle--one { top: 0.2rem; left: 0.85rem; }
+.pixel-pet-sparkle--two { top: 0.55rem; right: 0.75rem; animation-delay: 0.18s; }
+.pixel-pet-sparkle--three { bottom: 1rem; right: 1.25rem; animation-delay: 0.32s; }
+
+.pixel-pet-stage--happy .pixel-pet-sparkle,
+.pixel-pet-stage--listening .pixel-pet-sparkle,
+.pixel-pet-stage--speaking .pixel-pet-sparkle {
+  animation: pixel-pet-sparkle 1.05s ease-in-out infinite;
+}
+
+.pixel-pet-stage--comforting {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.58), rgba(229, 225, 193, 0.22), rgba(255, 255, 255, 0.42));
+}
+
+.pixel-pet-stage--concerned {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.55), rgba(255, 220, 194, 0.2), rgba(255, 255, 255, 0.4));
+}
+
+.pixel-pet-copy {
+  width: min(10rem, 42vw);
+}
+
+@media (max-width: 640px) {
+  .pixel-pet-stage {
+    --pet-pixel: 3.5px;
+    min-height: 62px;
+    padding: 0.35rem 0.75rem;
+    justify-content: flex-start;
+  }
+
+  .pixel-pet-button {
+    width: 64px;
+    height: 54px;
+  }
+
+  .pixel-pet-copy {
+    width: auto;
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pixel-pet-grid,
+  .pixel-pet-aura,
+  .pixel-pet-sparkle,
+  .pixel-pet-cell--mouth {
+    animation: none !important;
+  }
+}
+
+.garden-sprite-orbit {
+  --sprite-pixel: 4px;
+  --sprite-leaf-light: #7baf6e;
+  --sprite-leaf-dark: #396931;
+  --sprite-flower: #d8a35d;
+  --sprite-stem: #625f46;
+  --sprite-pot: #d8a35d;
+  --sprite-base: #8c4f10;
+  --sprite-eye: #1b1c1c;
+  --sprite-aura: rgba(57, 105, 49, 0.2);
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 65;
+  width: 164px;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.garden-sprite--moss {
+  --sprite-leaf-light: #9aa078;
+  --sprite-leaf-dark: #625f46;
+  --sprite-flower: #e5e1c1;
+  --sprite-pot: #d7c98d;
+  --sprite-base: #8c7c4b;
+  --sprite-aura: rgba(98, 95, 70, 0.2);
+}
+
+.garden-sprite--bloom {
+  --sprite-leaf-light: #7baf6e;
+  --sprite-leaf-dark: #396931;
+  --sprite-flower: #c98255;
+  --sprite-pot: #d8a35d;
+  --sprite-base: #8c4f10;
+  --sprite-aura: rgba(216, 163, 93, 0.26);
+}
+
+.garden-sprite--cactus {
+  --sprite-leaf-light: #a8b76d;
+  --sprite-leaf-dark: #5f7437;
+  --sprite-flower: #d8a35d;
+  --sprite-stem: #396931;
+  --sprite-pot: #d79a58;
+  --sprite-base: #8c4f10;
+  --sprite-aura: rgba(140, 79, 16, 0.18);
+}
+
+.garden-sprite-button,
+.garden-sprite-bubble,
+.garden-sprite-pill,
+.garden-sprite-catalogue {
+  pointer-events: auto;
+}
+
+.garden-sprite-button {
+  position: relative;
+  width: 84px;
+  height: 72px;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  isolation: isolate;
+  margin: 0 auto;
+}
+
+.garden-sprite-button:focus-visible,
+.garden-sprite-mini-button:focus-visible,
+.garden-sprite-pill:focus-visible,
+.garden-sprite-choice:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.garden-sprite-grid {
+  display: grid;
+  grid-template-columns: repeat(13, var(--sprite-pixel));
+  grid-auto-rows: var(--sprite-pixel);
+  gap: 1px;
+  image-rendering: pixelated;
+  transform-origin: center bottom;
+  position: relative;
+  z-index: 2;
+  filter: drop-shadow(0 9px 8px rgba(57, 105, 49, 0.17));
+}
+
+.garden-sprite-button--idle .garden-sprite-grid { animation: pixel-pet-idle 2.6s ease-in-out infinite; }
+.garden-sprite-button--listening .garden-sprite-grid { animation: pixel-pet-listening 0.78s ease-in-out infinite; }
+.garden-sprite-button--thinking .garden-sprite-grid { animation: pixel-pet-thinking 1.05s ease-in-out infinite; }
+.garden-sprite-button--speaking .garden-sprite-grid { animation: pixel-pet-speaking 0.38s ease-in-out infinite; }
+.garden-sprite-button--happy .garden-sprite-grid { animation: pixel-pet-happy 0.68s ease-in-out infinite; }
+.garden-sprite-button--comforting .garden-sprite-grid { animation: pixel-pet-comforting 2s ease-in-out infinite; }
+.garden-sprite-button--concerned .garden-sprite-grid { animation: pixel-pet-concerned 2.5s ease-in-out infinite; }
+
+.garden-sprite-cell {
+  width: var(--sprite-pixel);
+  height: var(--sprite-pixel);
+  border-radius: 1px;
+}
+
+.garden-sprite-cell--empty { opacity: 0; }
+.garden-sprite-cell--leaf-light { background: var(--sprite-leaf-light); }
+.garden-sprite-cell--leaf-dark { background: var(--sprite-leaf-dark); }
+.garden-sprite-cell--flower { background: var(--sprite-flower); }
+.garden-sprite-cell--stem { background: var(--sprite-stem); }
+.garden-sprite-cell--pot { background: var(--sprite-pot); }
+.garden-sprite-cell--base { background: var(--sprite-base); }
+.garden-sprite-cell--eye { background: var(--sprite-eye); }
+.garden-sprite-cell--mouth { background: var(--sprite-eye); transform-origin: center; }
+
+.garden-sprite-orbit--speaking .garden-sprite-cell--mouth,
+.garden-sprite-orbit--happy .garden-sprite-cell--mouth {
+  animation: pixel-pet-mouth 0.34s steps(2, end) infinite;
+}
+
+.garden-sprite-aura {
+  position: absolute;
+  inset: 0.2rem 0.6rem;
+  background: radial-gradient(circle, var(--sprite-aura), transparent 68%);
+  border-radius: 999px;
+  z-index: 0;
+  animation: pixel-pet-aura 2.2s ease-in-out infinite;
+}
+
+.garden-sprite-shadow {
+  position: absolute;
+  bottom: 0.25rem;
+  width: 46px;
+  height: 8px;
+  background: rgba(27, 28, 28, 0.1);
+  border-radius: 999px;
+  z-index: 1;
+}
+
+.garden-sprite-sparkle {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  background: var(--sprite-flower);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);
+  opacity: 0;
+  z-index: 3;
+}
+
+.garden-sprite-sparkle--one { top: 0.1rem; left: 1.1rem; }
+.garden-sprite-sparkle--two { top: 0.7rem; right: 1rem; animation-delay: 0.18s; }
+.garden-sprite-sparkle--three { bottom: 1.1rem; right: 1.4rem; animation-delay: 0.32s; }
+
+.garden-sprite-orbit--happy .garden-sprite-sparkle,
+.garden-sprite-orbit--listening .garden-sprite-sparkle,
+.garden-sprite-orbit--speaking .garden-sprite-sparkle {
+  animation: pixel-pet-sparkle 1s ease-in-out infinite;
+}
+
+.garden-sprite-bubble,
+.garden-sprite-catalogue,
+.garden-sprite-pill {
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 18px 38px -22px rgba(27, 28, 28, 0.28);
+}
+
+.garden-sprite-bubble {
+  width: 164px;
+  padding: 0.65rem 0.72rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(194, 201, 187, 0.42);
+  background: rgba(255, 255, 255, 0.82);
+  margin-bottom: 0.1rem;
+}
+
+.garden-sprite-pill {
+  border: 1px solid rgba(194, 201, 187, 0.42);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--color-primary);
+  border-radius: 999px;
+  padding: 0.28rem 0.58rem;
+  margin: 0 auto 0.15rem;
+  display: block;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.garden-sprite-mini-button {
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(194, 201, 187, 0.5);
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--color-outline);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.garden-sprite-catalogue {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 0.35rem);
+  width: min(19rem, calc(100vw - 1.5rem));
+  transform: translateX(-50%);
+  border: 1px solid rgba(194, 201, 187, 0.42);
+  background: rgba(252, 249, 248, 0.96);
+  border-radius: 1.1rem;
+  padding: 0.85rem;
+}
+
+.garden-sprite-choice {
+  min-height: 4.25rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(194, 201, 187, 0.34);
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.65rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.garden-sprite-choice:hover,
+.garden-sprite-choice--active {
+  transform: translateY(-1px);
+  border-color: rgba(57, 105, 49, 0.38);
+  background: rgba(123, 175, 110, 0.12);
+}
+
+.garden-sprite-orbit--comforting .garden-sprite-bubble {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(229, 225, 193, 0.72);
+}
+
+.garden-sprite-orbit--concerned .garden-sprite-bubble {
+  border-color: rgba(140, 79, 16, 0.24);
+}
+
+@media (max-width: 640px) {
+  .garden-sprite-orbit {
+    --sprite-pixel: 3.5px;
+    width: 142px;
+  }
+
+  .garden-sprite-button {
+    width: 70px;
+    height: 62px;
+  }
+
+  .garden-sprite-bubble {
+    width: 142px;
+    padding: 0.55rem 0.62rem;
+  }
+
+  .garden-sprite-catalogue {
+    left: auto;
+    right: 0;
+    transform: none;
+    width: min(18rem, calc(100vw - 1.25rem));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .garden-sprite-grid,
+  .garden-sprite-aura,
+  .garden-sprite-sparkle,
+  .garden-sprite-cell--mouth {
+    animation: none !important;
+  }
+}
+
+.garden-sprite-bubble--compact {
+  width: auto;
+  max-width: 138px;
+  min-height: 0;
+  padding: 0.32rem 0.38rem 0.32rem 0.55rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 9px;
+  line-height: 1;
+  margin: 0 auto -0.15rem;
+}
+
+.garden-sprite-bubble--compact .garden-sprite-mini-button {
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 0;
+  background: transparent;
+}
+
+.garden-sprite-panel {
+  position: fixed;
+  right: 1rem;
+  top: 5.75rem;
+  width: min(20rem, calc(100vw - 1.5rem));
+  border: 1px solid rgba(194, 201, 187, 0.42);
+  background: rgba(252, 249, 248, 0.97);
+  border-radius: 1.1rem;
+  padding: 0.9rem;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 24px 60px -28px rgba(27, 28, 28, 0.34);
+}
+
+@media (max-width: 640px) {
+  .garden-sprite-panel {
+    top: auto;
+    right: 0.75rem;
+    left: 0.75rem;
+    bottom: 5.7rem;
+    width: auto;
+  }
+}
+
+.garden-sprite-cell--hat { background: var(--sprite-hat); }
+
+.garden-sprite-pill {
+  width: 1.45rem;
+  height: 1.45rem;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto -0.05rem;
+  letter-spacing: 0;
+  opacity: 0.82;
+}
+
+.garden-sprite-pill:hover {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+
+
+
+
+
+
+
+.garden-sprite-choice {
+  flex-direction: row;
+  align-items: center;
+  min-height: 4.65rem;
+}
+
+.garden-sprite-choice-preview {
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 0.7rem;
+  border: 1px solid rgba(194, 201, 187, 0.48);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55), 0 8px 18px -14px rgba(27, 28, 28, 0.38);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.garden-sprite-choice-preview span {
+  width: 1.05rem;
+  height: 1.25rem;
+  border-radius: 0.55rem 0.55rem 0.25rem 0.25rem;
+  display: block;
+  box-shadow: 0 0.42rem 0 -0.12rem rgba(27, 28, 28, 0.12);
+}
+
+.garden-sprite-choice-preview--sprout {
+  background: linear-gradient(145deg, #eaf5df, #9ed17e);
+}
+
+.garden-sprite-choice-preview--sprout span {
+  background: linear-gradient(90deg, #396931 0 45%, #7baf6e 45% 100%);
+  clip-path: polygon(50% 0, 86% 20%, 70% 58%, 100% 100%, 0 100%, 30% 58%, 14% 20%);
+}
+
+.garden-sprite-choice-preview--moss {
+  background: linear-gradient(145deg, #f0ead4, #9aa078);
+}
+
+.garden-sprite-choice-preview--moss span {
+  background: radial-gradient(circle at 35% 35%, #b5ba8b, #625f46 72%);
+  border-radius: 999px;
+}
+
+.garden-sprite-choice-preview--bloom {
+  background: linear-gradient(145deg, #fff0d7, #d98d73);
+}
+
+.garden-sprite-choice-preview--bloom span {
+  background: radial-gradient(circle, #d8a35d 0 27%, #c98255 28% 58%, #7baf6e 59% 100%);
+  clip-path: polygon(50% 0, 62% 28%, 92% 18%, 74% 48%, 100% 65%, 66% 68%, 70% 100%, 50% 78%, 30% 100%, 34% 68%, 0 65%, 26% 48%, 8% 18%, 38% 28%);
+}
+
+.garden-sprite-choice-preview--cactus {
+  background: linear-gradient(145deg, #fff3dc, #d79a58);
+}
+
+.garden-sprite-choice-preview--cactus span {
+  background: linear-gradient(90deg, #5f7437, #a8b76d);
+  border-radius: 0.75rem 0.75rem 0.28rem 0.28rem;
+  clip-path: polygon(34% 0, 66% 0, 66% 38%, 92% 38%, 92% 62%, 66% 62%, 66% 100%, 34% 100%, 34% 62%, 8% 62%, 8% 38%, 34% 38%);
+}
+
+/* Preset skin distinction and emotional face states */
+.garden-sprite--sprout {
+  --sprite-leaf-light: #8fd36e;
+  --sprite-leaf-dark: #2f7a3d;
+  --sprite-flower: #f1c45f;
+  --sprite-stem: #4a7c3f;
+  --sprite-pot: #d8a35d;
+  --sprite-base: #7a4a17;
+  --sprite-aura: rgba(72, 156, 64, 0.24);
+}
+
+.garden-sprite--moss {
+  --sprite-leaf-light: #b7bd8b;
+  --sprite-leaf-dark: #5d6541;
+  --sprite-flower: #efe7bd;
+  --sprite-pot: #a98f5c;
+  --sprite-base: #5e583b;
+  --sprite-aura: rgba(108, 116, 71, 0.24);
+}
+
+.garden-sprite--bloom {
+  --sprite-leaf-light: #f3a46f;
+  --sprite-leaf-dark: #a8525f;
+  --sprite-flower: #ffd36b;
+  --sprite-stem: #6b8f48;
+  --sprite-pot: #c98255;
+  --sprite-base: #784234;
+  --sprite-aura: rgba(221, 112, 92, 0.28);
+}
+
+.garden-sprite--cactus {
+  --sprite-leaf-light: #b4c66a;
+  --sprite-leaf-dark: #4f7338;
+  --sprite-flower: #eea85c;
+  --sprite-stem: #4f7338;
+  --sprite-pot: #d79a58;
+  --sprite-base: #824f22;
+  --sprite-aura: rgba(177, 132, 64, 0.22);
+}
+
+.garden-sprite-face {
+  position: relative;
+  transition: transform 180ms ease, opacity 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.garden-sprite-cell--eye.garden-sprite-face--idle {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.garden-sprite-cell--eye.garden-sprite-face--listening {
+  background: #2f80ed;
+  transform: scale(1.24);
+  box-shadow: 0 0 7px rgba(47, 128, 237, 0.62);
+}
+
+.garden-sprite-cell--mouth.garden-sprite-face--listening {
+  transform: scaleX(0.7) scaleY(1.45);
+  background: #2f80ed;
+}
+
+.garden-sprite-cell--eye.garden-sprite-face--thinking {
+  transform: translateY(-1px) scaleY(0.78);
+  background: #625f46;
+}
+
+.garden-sprite-cell--mouth.garden-sprite-face--thinking {
+  transform: scaleX(0.45);
+  opacity: 0.78;
+}
+
+.garden-sprite-cell--eye.garden-sprite-face--speaking {
+  transform: scale(1.12);
+  background: #1b1c1c;
+}
+
+.garden-sprite-cell--mouth.garden-sprite-face--speaking {
+  background: var(--sprite-flower);
+  transform: scaleX(1.55) scaleY(1.18);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--sprite-flower) 70%, transparent);
+}
+
+.garden-sprite-cell--eye.garden-sprite-face--happy {
+  background: var(--sprite-flower);
+  transform: translateY(1px) scaleY(0.42) scaleX(1.35);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--sprite-flower) 72%, transparent);
+}
+
+.garden-sprite-cell--mouth.garden-sprite-face--happy {
+  background: #1b1c1c;
+  transform: translateY(1px) scaleX(1.75) scaleY(0.65);
+  border-radius: 0 0 2px 2px;
+}
+
+.garden-sprite-cell--eye.garden-sprite-face--comforting {
+  background: #625f46;
+  transform: translateY(1px) scaleY(0.55) scaleX(1.18);
+  opacity: 0.72;
+}
+
+.garden-sprite-cell--mouth.garden-sprite-face--comforting {
+  transform: scaleX(1.15) scaleY(0.55);
+  opacity: 0.62;
+}
+
+.garden-sprite-cell--eye.garden-sprite-face--concerned {
+  background: #8c4f10;
+  transform: translateY(1px) scaleY(1.18) scaleX(0.82);
+  opacity: 0.88;
+}
+
+.garden-sprite-cell--mouth.garden-sprite-face--concerned {
+  background: #8c4f10;
+  transform: translateY(2px) scaleX(0.78) rotate(8deg);
+  opacity: 0.9;
+}
+
+.garden-sprite-orbit--concerned .garden-sprite-grid {
+  filter: drop-shadow(0 9px 8px rgba(140, 79, 16, 0.2)) saturate(0.86);
+}
+/* Spirit-specific eye motion */
+@keyframes spirit-eye-sprout-curious {
+  0%, 100% { transform: translateX(0) translateY(0) scale(1); }
+  18% { transform: translateX(1px) translateY(-1px) scale(1.1); }
+  36% { transform: translateX(-1px) translateY(0) scale(1); }
+  54% { transform: translateX(0) translateY(1px) scaleY(0.62) scaleX(1.18); }
+  64% { transform: translateX(0) translateY(0) scale(1.08); }
+}
+
+@keyframes spirit-eye-moss-sleepy {
+  0%, 72%, 100% { transform: translateY(0) scaleY(0.9) scaleX(1.05); opacity: 0.82; }
+  78% { transform: translateY(1px) scaleY(0.22) scaleX(1.35); opacity: 0.64; }
+  84% { transform: translateY(0) scaleY(0.82) scaleX(1.12); opacity: 0.78; }
+}
+
+@keyframes spirit-eye-bloom-spark {
+  0%, 100% { transform: rotate(0deg) scale(1); box-shadow: 0 0 0 rgba(216, 163, 93, 0); }
+  20% { transform: rotate(-8deg) scaleY(0.45) scaleX(1.35); }
+  38% { transform: rotate(8deg) scale(1.24); box-shadow: 0 0 7px rgba(255, 211, 107, 0.7); }
+  58% { transform: rotate(0deg) scale(1); }
+}
+
+@keyframes spirit-eye-cactus-squint {
+  0%, 100% { transform: translateX(0) scaleY(0.82) scaleX(1.04); }
+  25% { transform: translateX(-1px) scaleY(0.45) scaleX(1.28); }
+  50% { transform: translateX(1px) scaleY(0.7) scaleX(1.1); }
+  76% { transform: translateX(0) scaleY(0.35) scaleX(1.38); }
+}
+
+.garden-sprite--sprout .garden-sprite-cell--eye.garden-sprite-face--idle,
+.garden-sprite--sprout .garden-sprite-cell--eye.garden-sprite-face--thinking {
+  animation: spirit-eye-sprout-curious 3.2s ease-in-out infinite;
+}
+
+.garden-sprite--moss .garden-sprite-cell--eye.garden-sprite-face--idle,
+.garden-sprite--moss .garden-sprite-cell--eye.garden-sprite-face--comforting {
+  animation: spirit-eye-moss-sleepy 4.6s ease-in-out infinite;
+}
+
+.garden-sprite--bloom .garden-sprite-cell--eye.garden-sprite-face--idle,
+.garden-sprite--bloom .garden-sprite-cell--eye.garden-sprite-face--happy,
+.garden-sprite--bloom .garden-sprite-cell--eye.garden-sprite-face--speaking {
+  animation: spirit-eye-bloom-spark 2.4s ease-in-out infinite;
+}
+
+.garden-sprite--cactus .garden-sprite-cell--eye.garden-sprite-face--idle,
+.garden-sprite--cactus .garden-sprite-cell--eye.garden-sprite-face--concerned,
+.garden-sprite--cactus .garden-sprite-cell--eye.garden-sprite-face--thinking {
+  animation: spirit-eye-cactus-squint 3.7s ease-in-out infinite;
+}
+
+.garden-sprite-orbit--listening .garden-sprite-cell--eye.garden-sprite-face {
+  animation: spirit-eye-sprout-curious 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .garden-sprite-cell--eye.garden-sprite-face {
+    animation: none !important;
+  }
+}
+
+/* Layered spirit mascot v2 */
+.spirit-mascot-button {
+  --spirit-main: #8fd36e;
+  --spirit-main-dark: #2f7a3d;
+  --spirit-main-soft: #dff2d0;
+  --spirit-accent: #f1c45f;
+  --spirit-pot: #d8a35d;
+  --spirit-base: #7a4a17;
+  --spirit-eye: #1b1c1c;
+  --spirit-cheek: rgba(255, 166, 128, 0.72);
+  --spirit-glow: rgba(72, 156, 64, 0.25);
+  position: relative;
+  width: 96px;
+  height: 92px;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  isolation: isolate;
+  margin: 0 auto;
+  pointer-events: auto;
+  transform-origin: center bottom;
+}
+
+.garden-sprite--sprout .spirit-mascot-button {
+  --spirit-main: #8fd36e;
+  --spirit-main-dark: #2f7a3d;
+  --spirit-main-soft: #e8f7dd;
+  --spirit-accent: #f1c45f;
+  --spirit-pot: #d8a35d;
+  --spirit-base: #7a4a17;
+  --spirit-glow: rgba(82, 168, 72, 0.28);
+}
+
+.garden-sprite--moss .spirit-mascot-button {
+  --spirit-main: #b7bd8b;
+  --spirit-main-dark: #5d6541;
+  --spirit-main-soft: #f0ead4;
+  --spirit-accent: #efe7bd;
+  --spirit-pot: #a98f5c;
+  --spirit-base: #5e583b;
+  --spirit-cheek: rgba(222, 188, 122, 0.5);
+  --spirit-glow: rgba(108, 116, 71, 0.25);
+}
+
+.garden-sprite--bloom .spirit-mascot-button {
+  --spirit-main: #f3a46f;
+  --spirit-main-dark: #a8525f;
+  --spirit-main-soft: #fff0d7;
+  --spirit-accent: #ffd36b;
+  --spirit-pot: #c98255;
+  --spirit-base: #784234;
+  --spirit-cheek: rgba(255, 134, 151, 0.6);
+  --spirit-glow: rgba(221, 112, 92, 0.32);
+}
+
+.garden-sprite--cactus .spirit-mascot-button {
+  --spirit-main: #b4c66a;
+  --spirit-main-dark: #4f7338;
+  --spirit-main-soft: #fff3dc;
+  --spirit-accent: #eea85c;
+  --spirit-pot: #d79a58;
+  --spirit-base: #824f22;
+  --spirit-cheek: rgba(238, 168, 92, 0.46);
+  --spirit-glow: rgba(177, 132, 64, 0.25);
+}
+
+.spirit-mascot-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+  border-radius: 1.2rem;
+}
+
+.spirit-mascot-glow {
+  position: absolute;
+  width: 76px;
+  height: 70px;
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--spirit-glow), transparent 68%);
+  filter: blur(1px);
+  animation: spirit-glow-breathe 2.8s ease-in-out infinite;
+  z-index: 0;
+}
+
+.spirit-mascot-shadow {
+  position: absolute;
+  bottom: 8px;
+  width: 54px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(27, 28, 28, 0.14);
+  filter: blur(1px);
+  transform-origin: center;
+  z-index: 0;
+}
+
+.spirit-mascot-body {
+  position: absolute;
+  bottom: 15px;
+  width: 58px;
+  height: 58px;
+  border-radius: 46% 54% 39% 42% / 45% 48% 42% 45%;
+  background:
+    radial-gradient(circle at 35% 27%, rgba(255,255,255,0.72), transparent 18%),
+    linear-gradient(145deg, var(--spirit-main-soft), var(--spirit-main) 48%, var(--spirit-main-dark));
+  box-shadow:
+    inset -8px -10px 0 rgba(27, 28, 28, 0.08),
+    inset 7px 7px 0 rgba(255, 255, 255, 0.24),
+    0 12px 20px -15px rgba(27, 28, 28, 0.52);
+  image-rendering: pixelated;
+  z-index: 2;
+  transform-origin: center bottom;
+  animation: spirit-body-idle 3s ease-in-out infinite;
+}
+
+.spirit-mascot-shine {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  width: 13px;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.45);
+  transform: rotate(-28deg);
+}
+
+.spirit-mascot-belly {
+  position: absolute;
+  left: 17px;
+  bottom: 7px;
+  width: 25px;
+  height: 14px;
+  border-radius: 999px 999px 8px 8px;
+  background: linear-gradient(180deg, var(--spirit-pot), var(--spirit-base));
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.22);
+}
+
+.spirit-mascot-face {
+  position: absolute;
+  inset: 17px 12px 14px;
+  z-index: 3;
+}
+
+.spirit-mascot-eye {
+  position: absolute;
+  top: 2px;
+  width: 10px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--spirit-eye);
+  overflow: hidden;
+  transform-origin: center;
+  animation: spirit-eye-blink 4.2s ease-in-out infinite;
+}
+
+.spirit-mascot-eye--left { left: 4px; }
+.spirit-mascot-eye--right { right: 4px; animation-delay: 0.08s; }
+
+.spirit-mascot-pupil {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  animation: spirit-pupil-wander 3.4s ease-in-out infinite;
+}
+
+.spirit-mascot-mouth {
+  position: absolute;
+  left: 50%;
+  top: 21px;
+  width: 15px;
+  height: 6px;
+  border-radius: 0 0 999px 999px;
+  border-bottom: 3px solid var(--spirit-eye);
+  transform: translateX(-50%);
+  transform-origin: center;
+}
+
+.spirit-mascot-cheek {
+  position: absolute;
+  top: 20px;
+  width: 7px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--spirit-cheek);
+  opacity: 0.6;
+}
+
+.spirit-mascot-cheek--left { left: 0; }
+.spirit-mascot-cheek--right { right: 0; }
+
+.spirit-mascot-leaf,
+.spirit-mascot-sprig {
+  position: absolute;
+  background: linear-gradient(145deg, var(--spirit-main-soft), var(--spirit-main-dark));
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 7px 12px -9px rgba(27, 28, 28, 0.48);
+  transform-origin: center bottom;
+  z-index: 1;
+}
+
+.spirit-mascot-leaf--left {
+  top: 14px;
+  left: 20px;
+  width: 27px;
+  height: 18px;
+  border-radius: 100% 0 100% 18%;
+  transform: rotate(-34deg);
+  animation: spirit-leaf-left 2.7s ease-in-out infinite;
+}
+
+.spirit-mascot-leaf--right {
+  top: 12px;
+  right: 19px;
+  width: 28px;
+  height: 18px;
+  border-radius: 0 100% 18% 100%;
+  transform: rotate(34deg);
+  animation: spirit-leaf-right 2.8s ease-in-out infinite;
+}
+
+.spirit-mascot-sprig {
+  top: 7px;
+  left: 42px;
+  width: 13px;
+  height: 21px;
+  border-radius: 100% 100% 22% 22%;
+  transform: rotate(8deg);
+  animation: spirit-sprig-nod 3.2s ease-in-out infinite;
+}
+
+.spirit-mascot-mote {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--spirit-accent);
+  opacity: 0;
+  z-index: 4;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.72), 0 0 10px var(--spirit-glow);
+}
+
+.spirit-mascot-mote--one { top: 12px; left: 17px; }
+.spirit-mascot-mote--two { top: 22px; right: 12px; animation-delay: 0.2s; }
+.spirit-mascot-mote--three { bottom: 26px; right: 18px; animation-delay: 0.36s; }
+
+.garden-sprite--moss .spirit-mascot-body {
+  width: 62px;
+  height: 54px;
+  border-radius: 56% 52% 44% 48% / 58% 54% 42% 45%;
+}
+
+.garden-sprite--moss .spirit-mascot-sprig {
+  width: 30px;
+  height: 12px;
+  left: 33px;
+  top: 12px;
+  border-radius: 999px 999px 8px 8px;
+  transform: rotate(-7deg);
+}
+
+.garden-sprite--bloom .spirit-mascot-body {
+  width: 59px;
+  height: 59px;
+  border-radius: 52% 48% 42% 46% / 48% 54% 42% 44%;
+}
+
+.garden-sprite--bloom .spirit-mascot-sprig {
+  width: 25px;
+  height: 25px;
+  top: 4px;
+  left: 35px;
+  background: radial-gradient(circle, var(--spirit-accent) 0 34%, var(--spirit-main) 35% 58%, var(--spirit-main-dark) 59% 100%);
+  clip-path: polygon(50% 0, 63% 29%, 95% 18%, 73% 50%, 100% 69%, 66% 67%, 70% 100%, 50% 79%, 30% 100%, 34% 67%, 0 69%, 27% 50%, 5% 18%, 37% 29%);
+  border: 0;
+}
+
+.garden-sprite--cactus .spirit-mascot-body {
+  width: 48px;
+  height: 66px;
+  border-radius: 26px 26px 16px 16px;
+}
+
+.garden-sprite--cactus .spirit-mascot-leaf--left,
+.garden-sprite--cactus .spirit-mascot-leaf--right {
+  top: 32px;
+  width: 20px;
+  height: 27px;
+  border-radius: 18px;
+}
+
+.garden-sprite--cactus .spirit-mascot-leaf--left { left: 19px; transform: rotate(-12deg); }
+.garden-sprite--cactus .spirit-mascot-leaf--right { right: 19px; transform: rotate(12deg); }
+.garden-sprite--cactus .spirit-mascot-sprig { width: 0; height: 0; border: 0; }
+
+.spirit-mascot-button--idle .spirit-mascot-body { animation: spirit-body-idle 3s ease-in-out infinite; }
+.spirit-mascot-button--idle .spirit-mascot-eye { animation: spirit-eye-blink 4.2s ease-in-out infinite; }
+.spirit-mascot-button--idle .spirit-mascot-pupil { animation: spirit-pupil-wander 3.4s ease-in-out infinite; }
+
+.spirit-mascot-button--listening .spirit-mascot-body {
+  animation: spirit-body-listen 0.88s ease-in-out infinite;
+}
+.spirit-mascot-button--listening .spirit-mascot-eye {
+  height: 15px;
+  background: #2f80ed;
+  box-shadow: 0 0 8px rgba(47, 128, 237, 0.6);
+  animation: spirit-eye-alert 1.15s ease-in-out infinite;
+}
+.spirit-mascot-button--listening .spirit-mascot-mouth {
+  width: 10px;
+  height: 10px;
+  border: 3px solid #2f80ed;
+  border-radius: 999px;
+  background: rgba(47, 128, 237, 0.1);
+}
+.spirit-mascot-button--listening .spirit-mascot-glow { animation: spirit-glow-listen 1s ease-in-out infinite; }
+
+.spirit-mascot-button--thinking .spirit-mascot-body {
+  animation: spirit-body-think 1.2s ease-in-out infinite;
+}
+.spirit-mascot-button--thinking .spirit-mascot-eye { animation: spirit-eye-think 1.7s ease-in-out infinite; }
+.spirit-mascot-button--thinking .spirit-mascot-mouth {
+  width: 16px;
+  height: 2px;
+  border: 0;
+  background: var(--spirit-eye);
+  border-radius: 999px;
+}
+
+.spirit-mascot-button--speaking .spirit-mascot-body {
+  animation: spirit-body-speak 0.42s ease-in-out infinite;
+}
+.spirit-mascot-button--speaking .spirit-mascot-eye { animation: spirit-eye-speak 1.1s ease-in-out infinite; }
+.spirit-mascot-button--speaking .spirit-mascot-mouth {
+  width: 18px;
+  height: 13px;
+  border: 0;
+  background: var(--spirit-eye);
+  border-radius: 999px 999px 70% 70%;
+  animation: spirit-mouth-speak 0.28s ease-in-out infinite;
+}
+
+.spirit-mascot-button--happy .spirit-mascot-body {
+  animation: spirit-body-happy 0.72s ease-in-out infinite;
+}
+.spirit-mascot-button--happy .spirit-mascot-eye {
+  height: 7px;
+  border-radius: 999px 999px 2px 2px;
+  background: var(--spirit-accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--spirit-accent) 72%, transparent);
+  animation: spirit-eye-happy 0.9s ease-in-out infinite;
+}
+.spirit-mascot-button--happy .spirit-mascot-mouth {
+  width: 22px;
+  height: 10px;
+  border: 0;
+  border-bottom: 4px solid var(--spirit-eye);
+  border-radius: 0 0 999px 999px;
+  transform: translateX(-50%) translateY(1px);
+}
+.spirit-mascot-button--happy .spirit-mascot-mote { animation: spirit-mote-pop 1.1s ease-in-out infinite; }
+
+.spirit-mascot-button--comforting .spirit-mascot-body {
+  animation: spirit-body-comfort 2s ease-in-out infinite;
+  filter: saturate(0.92) brightness(1.04);
+}
+.spirit-mascot-button--comforting .spirit-mascot-eye {
+  height: 6px;
+  opacity: 0.72;
+  animation: spirit-eye-soft 2.4s ease-in-out infinite;
+}
+.spirit-mascot-button--comforting .spirit-mascot-mouth {
+  width: 17px;
+  opacity: 0.74;
+}
+
+.spirit-mascot-button--concerned .spirit-mascot-body {
+  animation: spirit-body-concerned 2.5s ease-in-out infinite;
+  filter: saturate(0.82);
+}
+.spirit-mascot-button--concerned .spirit-mascot-eye {
+  height: 9px;
+  background: #8c4f10;
+  animation: spirit-eye-concerned 2.3s ease-in-out infinite;
+}
+.spirit-mascot-button--concerned .spirit-mascot-mouth {
+  width: 15px;
+  height: 7px;
+  border: 0;
+  border-top: 3px solid #8c4f10;
+  border-radius: 999px 999px 0 0;
+  transform: translateX(-50%) translateY(6px);
+}
+
+@keyframes spirit-body-idle {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
+  50% { transform: translateY(-2px) rotate(0.8deg) scale(1.02); }
+}
+
+@keyframes spirit-body-listen {
+  0%, 100% { transform: translateY(0) rotate(-2deg) scale(1.02); }
+  50% { transform: translateY(-4px) rotate(2deg) scale(1.06); }
+}
+
+@keyframes spirit-body-think {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  33% { transform: translateX(-2px) rotate(-2deg); }
+  66% { transform: translateX(2px) rotate(2deg); }
+}
+
+@keyframes spirit-body-speak {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  50% { transform: translateY(-2px) scaleY(1.05); }
+}
+
+@keyframes spirit-body-happy {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
+  35% { transform: translateY(-8px) rotate(-4deg) scale(1.07); }
+  65% { transform: translateY(-3px) rotate(4deg) scale(1.03); }
+}
+
+@keyframes spirit-body-comfort {
+  0%, 100% { transform: translateY(0) scale(1); }
+  45% { transform: translateY(3px) scale(0.98); }
+  76% { transform: translateY(-1px) scale(1.01); }
+}
+
+@keyframes spirit-body-concerned {
+  0%, 100% { transform: translateY(2px) rotate(0deg) scale(0.98); }
+  50% { transform: translateY(5px) rotate(-1.5deg) scale(0.96); }
+}
+
+@keyframes spirit-eye-blink {
+  0%, 88%, 100% { transform: scaleY(1); }
+  92% { transform: scaleY(0.18); }
+  96% { transform: scaleY(1); }
+}
+
+@keyframes spirit-pupil-wander {
+  0%, 100% { transform: translate(0, 0); }
+  28% { transform: translate(2px, -1px); }
+  55% { transform: translate(-1px, 1px); }
+  78% { transform: translate(1px, 0); }
+}
+
+@keyframes spirit-eye-alert {
+  0%, 100% { transform: scale(1.06); }
+  50% { transform: scale(1.24); }
+}
+
+@keyframes spirit-eye-think {
+  0%, 100% { transform: translateX(0) scaleY(0.82); }
+  34% { transform: translateX(-2px) scaleY(0.76); }
+  68% { transform: translateX(2px) scaleY(0.76); }
+}
+
+@keyframes spirit-eye-speak {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scaleY(0.7) scaleX(1.18); }
+}
+
+@keyframes spirit-eye-happy {
+  0%, 100% { transform: translateY(1px) rotate(0deg) scaleX(1.15); }
+  50% { transform: translateY(0) rotate(8deg) scaleX(1.3); }
+}
+
+@keyframes spirit-eye-soft {
+  0%, 100% { transform: translateY(1px) scaleY(0.52) scaleX(1.15); }
+  50% { transform: translateY(2px) scaleY(0.36) scaleX(1.3); }
+}
+
+@keyframes spirit-eye-concerned {
+  0%, 100% { transform: translateY(1px) scaleY(0.78); }
+  50% { transform: translateY(2px) translateX(-1px) scaleY(0.5); }
+}
+
+@keyframes spirit-mouth-speak {
+  0%, 100% { transform: translateX(-50%) scaleY(0.72); }
+  50% { transform: translateX(-50%) scaleY(1.18) scaleX(1.12); }
+}
+
+@keyframes spirit-glow-breathe {
+  0%, 100% { opacity: 0.42; transform: scale(0.92); }
+  50% { opacity: 0.72; transform: scale(1.08); }
+}
+
+@keyframes spirit-glow-listen {
+  0%, 100% { opacity: 0.5; transform: scale(0.98); }
+  50% { opacity: 0.9; transform: scale(1.18); }
+}
+
+@keyframes spirit-leaf-left {
+  0%, 100% { transform: rotate(-34deg); }
+  50% { transform: rotate(-42deg) translateY(-1px); }
+}
+
+@keyframes spirit-leaf-right {
+  0%, 100% { transform: rotate(34deg); }
+  50% { transform: rotate(42deg) translateY(-1px); }
+}
+
+@keyframes spirit-sprig-nod {
+  0%, 100% { transform: rotate(8deg); }
+  50% { transform: rotate(-8deg) translateY(-1px); }
+}
+
+@keyframes spirit-mote-pop {
+  0%, 100% { opacity: 0; transform: translateY(5px) scale(0.6) rotate(0deg); }
+  45% { opacity: 1; transform: translateY(-6px) scale(1) rotate(45deg); }
+}
+
+@media (max-width: 640px) {
+  .spirit-mascot-button {
+    width: 84px;
+    height: 82px;
+  }
+
+  .spirit-mascot-body {
+    width: 52px;
+    height: 52px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spirit-mascot-button,
+  .spirit-mascot-body,
+  .spirit-mascot-eye,
+  .spirit-mascot-pupil,
+  .spirit-mascot-mouth,
+  .spirit-mascot-glow,
+  .spirit-mascot-leaf,
+  .spirit-mascot-sprig,
+  .spirit-mascot-mote {
+    animation: none !important;
+  }
+}
