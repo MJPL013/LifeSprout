@@ -21,7 +21,9 @@ import {
     cancelSpeech,
     VOICE_PRESETS,
     getStoredVoicePreset,
-    storeVoicePreset
+    storeVoicePreset,
+    getStoredVoiceProvider,
+    storeVoiceProvider
 } from '../utils/voice';
 
 
@@ -37,9 +39,13 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     const [micStatus, setMicStatus] = useState('idle');
     const [voiceMode, setVoiceMode] = useState('stt');
     const [inputValue, setInputValue] = useState('');
+    const [isInputFocused, setIsInputFocused] = useState(false);
+    const [isInputPointerInside, setIsInputPointerInside] = useState(false);
+    const [isUserActivelyTyping, setIsUserActivelyTyping] = useState(false);
     const [voiceTranscript, setVoiceTranscript] = useState('');
     const [isMuted, setIsMuted] = useState(() => getVoiceMuted());
     const [voicePresetId, setVoicePresetId] = useState(() => getStoredVoicePreset(user.userId).id);
+    const [voiceProvider, setVoiceProvider] = useState(() => getStoredVoiceProvider(user.userId));
     const [latestBotMessage, setLatestBotMessage] = useState('Direct connection established...');
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [petMood, setPetMood] = useState(() => getRestingPetMood(user.metrics?.mood));
@@ -58,17 +64,26 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         }
     });
     const selectedVoicePreset = VOICE_PRESETS.find(preset => preset.id === voicePresetId) || getStoredVoicePreset(user.userId);
+    const isSpiritInputDocked = !isListening && ((isInputFocused && isInputPointerInside) || isUserActivelyTyping);
     const feedEndRef = useRef(null);
     const voiceControllerRef = useRef(null);
     const isMutedRef = useRef(isMuted);
     const voicePresetRef = useRef(selectedVoicePreset);
+    const voiceProviderRef = useRef(voiceProvider);
     const hasSentGreetingRef = useRef(false);
     const stopMicTimeoutRef = useRef(null);
     const voiceSubmitTimeoutRef = useRef(null);
+    const typingIdleTimeoutRef = useRef(null);
     const lastVoiceSentRef = useRef('');
     const petTimeoutRef = useRef(null);
     const lastPetUserRef = useRef({ text: '', actionType: '' });
     const metricsRef = useRef(metrics);
+
+    const markUserTyping = () => {
+        setIsUserActivelyTyping(true);
+        if (typingIdleTimeoutRef.current) clearTimeout(typingIdleTimeoutRef.current);
+        typingIdleTimeoutRef.current = setTimeout(() => setIsUserActivelyTyping(false), 420);
+    };
 
     useEffect(() => {
         isMutedRef.current = isMuted;
@@ -78,6 +93,10 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
     useEffect(() => {
         voicePresetRef.current = selectedVoicePreset;
     }, [selectedVoicePreset]);
+
+    useEffect(() => {
+        voiceProviderRef.current = voiceProvider;
+    }, [voiceProvider]);
 
     useEffect(() => {
         metricsRef.current = metrics;
@@ -102,6 +121,14 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
             setMetrics(data.metrics);
         });
 
+        newSocket.on('personal_companion_typing', (event = {}) => {
+            setLatestBotMessage(`${event.from?.personaName || user.persona} is checking in...`);
+            showPetMood(event.reason === 'telemetry_shift' ? 'concerned' : 'thinking', {
+                duration: 1800,
+                soundEvent: null
+            });
+        });
+
         newSocket.on('new_message', (msg) => {
             setFeed(prev => [...prev, { ...msg, id: Date.now() + Math.random() }]);
             // Check if it's a message from the plant to update subtitles
@@ -121,7 +148,11 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                         persona: user.persona,
                         userId: user.userId,
                         voicePreset: voicePresetRef.current,
-                        voiceModel: voicePresetRef.current.model
+                        voiceModel: voicePresetRef.current.model,
+                        voiceProvider: voiceProviderRef.current,
+                        sarvamSpeaker: voicePresetRef.current.speaker,
+                        languageCode: voicePresetRef.current.languageCode,
+                        quickActionType: msg.quickAction ? msg.actionType : null
                     });
                 }
             }
@@ -130,6 +161,7 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         return () => {
             if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
             if (voiceSubmitTimeoutRef.current) clearTimeout(voiceSubmitTimeoutRef.current);
+            if (typingIdleTimeoutRef.current) clearTimeout(typingIdleTimeoutRef.current);
             if (petTimeoutRef.current) clearTimeout(petTimeoutRef.current);
             voiceControllerRef.current?.stop();
             voiceControllerRef.current = null;
@@ -211,10 +243,29 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
 
     const handleVoicePresetChange = (presetId) => {
         const preset = storeVoicePreset(user.userId, presetId);
+        const provider = storeVoiceProvider(user.userId, preset.provider || voiceProviderRef.current);
         setVoicePresetId(preset.id);
+        setVoiceProvider(provider);
         voicePresetRef.current = preset;
+        voiceProviderRef.current = provider;
     };
 
+    const handleVoiceProviderChange = (providerId) => {
+        const provider = storeVoiceProvider(user.userId, providerId);
+        const currentPreset = VOICE_PRESETS.find(item => item.id === voicePresetRef.current?.id);
+        const nextPreset = currentPreset?.provider === provider
+            ? currentPreset
+            : VOICE_PRESETS.find(item => item.provider === provider) || currentPreset;
+
+        setVoiceProvider(provider);
+        voiceProviderRef.current = provider;
+        if (nextPreset) {
+            storeVoicePreset(user.userId, nextPreset.id);
+            setVoicePresetId(nextPreset.id);
+            voicePresetRef.current = nextPreset;
+        }
+        cancelSpeech();
+    };
     const stopVoiceInput = () => {
         if (stopMicTimeoutRef.current) clearTimeout(stopMicTimeoutRef.current);
         if (voiceSubmitTimeoutRef.current) clearTimeout(voiceSubmitTimeoutRef.current);
@@ -265,11 +316,15 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         showPetMood('listening', { duration: 0, soundEvent: 'listen-on' });
 
         try {
+            const agentVoicePreset = voiceProviderRef.current === 'sarvam'
+                ? VOICE_PRESETS.find(preset => preset.provider === 'deepgram') || voicePresetRef.current
+                : voicePresetRef.current;
+
             const agentController = await startVoiceAgentCapture({
                 socket: socketRef.current,
                 user,
                 metrics,
-                voicePreset: voicePresetRef.current,
+                voicePreset: agentVoicePreset,
                 onInterim: (transcript) => {
                     setInputValue(transcript);
                     setVoiceTranscript(transcript);
@@ -480,15 +535,33 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                         }}
                         className="flex gap-2 items-center"
                     >
-                        <input
-                            name="message"
-                            type="text"
-                            value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
-                            placeholder={`Whisper to your ${user.plantType}...`}
-                            className="flex-1 bg-white/80 border border-outline-variant rounded-full px-5 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-inner"
-                            autoComplete="off"
-                        />
+                        <div
+                            className="relative flex-1 min-w-0"
+                            onPointerEnter={() => setIsInputPointerInside(true)}
+                            onPointerLeave={() => setIsInputPointerInside(false)}
+                        >
+                            <input
+                                name="message"
+                                type="text"
+                                value={inputValue}
+                                onChange={(e) => {
+                                    setInputValue(e.target.value);
+                                    markUserTyping();
+                                }}
+                                onKeyDown={markUserTyping}
+                                onFocus={() => setIsInputFocused(true)}
+                                onBlur={() => setIsInputFocused(false)}
+                                placeholder={`Whisper to your ${user.plantType}...`}
+                                className="w-full bg-white/80 border border-outline-variant rounded-full pl-5 pr-12 py-2.5 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary shadow-inner"
+                                autoComplete="off"
+                            />
+                            {selectedSpriteId && isSpiritInputDocked && (
+                                <span className="spirit-typing-adornment" aria-hidden="true">
+                                    <span className={`spirit-typing-dot spirit-typing-dot--${selectedSpriteId}`} />
+                                    <span className="spirit-typing-caret" />
+                                </span>
+                            )}
+                        </div>
                         <MicButton status={micStatus} onClick={handleMicClick} title="Speak to Companion" />
                         <button
                             type="submit"
@@ -509,6 +582,8 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                 metrics={metrics}
                 muted={isMuted}
                 selectedSpriteId={selectedSpriteId}
+                isUserTyping={isSpiritInputDocked}
+                typingText={inputValue}
                 onClick={handlePetClick}
             />
 
@@ -517,9 +592,9 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                     <div className="garden-sprite-panel pointer-events-auto" onClick={(event) => event.stopPropagation()}>
                         <div className="flex items-start justify-between gap-3 mb-3">
                             <div>
-                                <div className="text-[9px] font-bold uppercase tracking-widest text-outline">Companion Spirits</div>
+                                <div className="text-[9px] font-bold uppercase tracking-widest text-outline">Screen Companion</div>
                                 <h4 className="font-display text-base font-bold text-primary leading-tight">Choose Your Spirit</h4>
-                                <p className="text-[10px] text-on-surface-variant leading-snug mt-1">Pick the little companion that wanders with your plant session.</p>
+                                <p className="text-[10px] text-on-surface-variant leading-snug mt-1">Each one follows, idles, and reacts with its own tiny personality.</p>
                             </div>
                             <button type="button" onClick={() => setShowSpriteCatalogue(false)} className="garden-sprite-mini-button" title="Close workshop">
                                 <span className="material-symbols-outlined text-sm">close</span>
@@ -537,11 +612,15 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                                     <span className={`garden-sprite-choice-preview garden-sprite-choice-preview--${sprite.id}`} aria-hidden="true">
                                         <span />
                                     </span>
-                                    <span className="min-w-0 flex flex-col gap-0.5">
-                                        <span className="font-bold text-[11px] text-on-surface">{sprite.label}</span>
-                                        <span className="text-[9px] leading-snug text-on-surface-variant">
-                                            {sprite.id === selectedSpriteId ? 'Selected - tap again to hide' : sprite.note}
+                                    <span className="min-w-0 flex flex-col gap-1">
+                                        <span className="flex items-center gap-1.5 min-w-0">
+                                            <span className="font-bold text-[11px] text-on-surface truncate">{sprite.label}</span>
+                                            <span className="garden-sprite-choice-meta shrink-0">{sprite.archetype}</span>
                                         </span>
+                                        <span className="text-[9px] leading-snug text-on-surface-variant">
+                                            {sprite.id === selectedSpriteId ? `${sprite.vibe} - tap again to hide` : sprite.note}
+                                        </span>
+                                        <span className="text-[8px] leading-tight text-outline italic truncate">{sprite.voiceLine}</span>
                                     </span>
                                 </button>
                             ))}
@@ -613,14 +692,14 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
                             {user.name}'s {user.plantType} companion with a stable telemetry stream.
                         </p>
                         <div className="text-[9px] uppercase tracking-wider text-outline font-bold mt-1">
-                            Voice {selectedVoicePreset.label} - {metrics?.mood || 'Stable'}
+                            Voice {selectedVoicePreset.label} / {voiceProvider === 'sarvam' ? 'Sarvam' : 'Deepgram'} - {metrics?.mood || 'Stable'}
                         </div>
                     </div>
                 </div>
 
                 <MyCompanion user={user} metrics={metrics} />
 
-                <VoiceSelector value={voicePresetId} onChange={handleVoicePresetChange} />
+                <VoiceSelector value={voicePresetId} onChange={handleVoicePresetChange} provider={voiceProvider} onProviderChange={handleVoiceProviderChange} />
 
                 {/* Join Groups Card */}
                 <div className="glass-card p-5 bg-white/40 hidden md:flex flex-col justify-between mb-4">
@@ -642,3 +721,9 @@ export default function PersonalHub({ user, onJoinRoom, onLogout }) {
         </div>
     );
 }
+
+
+
+
+
+

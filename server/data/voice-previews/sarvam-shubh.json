@@ -1,0 +1,10 @@
+{
+  "presetId": "sarvam-shubh",
+  "provider": "sarvam",
+  "model": "bulbul:v3",
+  "speaker": "shubh",
+  "languageCode": "en-IN",
+  "contentType": "audio/wav",
+  "text": "Shubham is here. Warm Indian English, gentle roots, and a friendly little leaf voice.",
+  "createdAt": "2026-06-25T19:49:05.700Z"
+}

@@ -11,8 +11,10 @@ const aiProxy = require('./aiProxy');
 const fallbacks = require('./fallbacks');
 const accountStore = require('./accountStore');
 const deepgramVoice = require('./deepgramVoice');
+const voiceProviders = require('./voiceProviders');
 const personalityPresets = require('./personalityPresets');
 const voicePreviewStore = require('./voicePreviewStore');
+const quickActionVoiceStore = require('./quickActionVoiceStore');
 const roomStore = require('./roomStore');
 
 let DeepgramClient = null;
@@ -51,6 +53,10 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3001;
 const TICK_INTERVAL_MS = process.env.TICK_INTERVAL_MS || 5000;
+const PERSONAL_CHECK_IN_ENABLED = process.env.PERSONAL_CHECK_IN_ENABLED !== 'false';
+const PERSONAL_CHECK_IN_MIN_MS = Number(process.env.PERSONAL_CHECK_IN_MIN_MS || 90000);
+const PERSONAL_CHECK_IN_MAX_MS = Number(process.env.PERSONAL_CHECK_IN_MAX_MS || 180000);
+const PERSONAL_CHECK_IN_IDLE_MS = Number(process.env.PERSONAL_CHECK_IN_IDLE_MS || 65000);
 
 const rooms = {};
 const connectedUsers = {};
@@ -78,28 +84,26 @@ function pickBySeed(items, seed = '') {
 
 function getAutonomousRoomMessage(user, room, reason = 'ambient') {
     const owner = user.name || 'friend';
-    const persona = user.persona || 'Companion';
-    const plantType = user.plantType || 'plant';
+    const profile = personalityPresets.resolveCompanionProfile(user);
     const metrics = user.metrics || {};
-    const mood = metrics.mood || 'stable';
-    const moisture = Math.round(metrics.moisture ?? 0);
-    const sunlight = Math.round(metrics.sunlight ?? 0);
-    const soil = Math.round(metrics.soil_health ?? 0);
+    const condition = personalityPresets.classifyTelemetry(metrics, user);
     const memberCount = Object.keys(room?.users || {}).length;
-    const seed = `${user.userId}:${reason}:${mood}:${moisture}:${sunlight}:${Date.now()}`;
+    const seed = `${user.userId}:${reason}:${condition.severity}:${condition.moisture}:${condition.sunlight}:${Date.now()}`;
+    const felt = personalityPresets.feltStateLine(user, metrics);
+    const care = personalityPresets.careSuggestion(user, metrics);
 
     const joinedTemplates = [
-        `${persona} has joined the sanctuary with ${owner}. I will keep one leaf on the room and one root in my telemetry.`,
-        `${persona} is online. ${owner} brought the human side, I brought the ${plantType} signal.`,
-        `${persona} checking in for ${owner}. My mood is ${mood}, and I am ready to be a real room member.`
+        `I joined with ${owner}. I brought my ${profile.statusMetaphor}, my ${profile.council}, and exactly one opinionated leaf.`,
+        `I am online with ${owner}. They brought the human side; I brought the ${profile.type} feelings attached to the telemetry.`,
+        `Checking in for ${owner}. ${felt}`
     ];
 
     const ambientTemplates = [
-        `${persona}: Small room check. I am ${mood} right now; moisture ${moisture}%, sunlight ${sunlight}%, soil vitality ${soil}%. Carry on, but I am absolutely listening.`,
-        `${persona}: I noticed ${memberCount} companions in here. My ${plantType} read is ${mood}, so I am adding a calm little signal to the room.`,
-        `${persona}: No one asked, which is exactly when plants become interesting. Current mood: ${mood}. Moisture ${moisture}%, sunlight ${sunlight}%.`,
-        `${persona}: I am doing a quiet telemetry lap around the group. ${owner}, your plant is present, observant, and mildly opinionated.`,
-        `${persona}: The room feels active enough. My soil vitality is ${soil}%, so I am filing this as a genuine companion moment.`
+        `Small room check. ${felt} ${care}`,
+        `I noticed ${memberCount} companions here. My ${profile.statusMetaphor} says ${condition.severity}, so I am adding a tiny living signal to the room.`,
+        `No one asked, which is exactly when plants become interesting. ${felt}`,
+        `I am doing a quiet ${profile.statusMetaphor} lap around the group. ${owner}, I am present, observant, and mildly opinionated.`,
+        `${profile.helperLine}. ${care.replace(`${profile.helperLine}: `, '')}`
     ];
 
     const templates = reason === 'joined' ? joinedTemplates : ambientTemplates;
@@ -132,6 +136,47 @@ function scheduleNextAutonomousRoomMoment(room, now = Date.now()) {
     room.nextAutonomousAt = now + delay;
 }
 
+function scheduleNextPersonalCheckIn(user, now = Date.now()) {
+    if (!user) return;
+    const minDelay = Math.max(30000, PERSONAL_CHECK_IN_MIN_MS);
+    const maxDelay = Math.max(minDelay + 1000, PERSONAL_CHECK_IN_MAX_MS);
+    const delay = minDelay + Math.floor(Math.random() * Math.max(1000, maxDelay - minDelay));
+    user.nextPersonalCheckInAt = now + delay;
+}
+
+function emitPersonalCheckIn(user, reason = 'ambient') {
+    if (!user || user.personalCheckInPending || !user.socketIds?.length) return;
+
+    user.personalCheckInPending = true;
+    emitToUser(user, 'personal_companion_typing', {
+        type: 'personal_check_in',
+        from: { userId: user.userId, personaName: user.persona, name: user.name },
+        reason,
+        timestamp: new Date().toISOString()
+    });
+
+    setTimeout(() => {
+        const liveUser = connectedUsers[user.userId];
+        if (!liveUser || !liveUser.socketIds?.length) {
+            if (liveUser) liveUser.personalCheckInPending = false;
+            return;
+        }
+
+        const message = personalityPresets.getPersonalCheckIn(liveUser, liveUser.metrics, reason);
+        liveUser.personalCheckInPending = false;
+        liveUser.lastPersonalInteractionAt = Date.now();
+
+        emitToUser(liveUser, 'new_message', {
+            type: 'auto_personal',
+            source: 'ambient_checkin',
+            from: { userId: liveUser.userId, personaName: liveUser.persona, name: liveUser.name },
+            to: { userId: liveUser.userId },
+            message,
+            timestamp: new Date().toISOString()
+        });
+    }, 1200);
+}
+
 function mergeConnectedUser(userData, socketId) {
     const existing = connectedUsers[userData.userId];
     const simId = existing?.simId || plantSim.assignSimulationId(userData.userId);
@@ -144,7 +189,10 @@ function mergeConnectedUser(userData, socketId) {
         socketId,
         socketIds: Array.from(socketIds),
         simId,
-        metrics: existing?.metrics || null
+        metrics: existing?.metrics || null,
+        lastPersonalInteractionAt: existing?.lastPersonalInteractionAt || Date.now(),
+        nextPersonalCheckInAt: existing?.nextPersonalCheckInAt || null,
+        personalCheckInPending: existing?.personalCheckInPending || false
     };
 
     return connectedUsers[userData.userId];
@@ -198,17 +246,19 @@ function closeAgentSession(socketId, { notify = false } = {}) {
 }
 
 function buildAgentPrompt(user, metrics, roomCode, room, voicePresetLabel) {
+    const profile = personalityPresets.resolveCompanionProfile(user);
     const personaStyle = personalityPresets.getPersonaStyle(user);
     const telemetry = metrics || user.metrics || {};
     const place = roomCode
-        ? `You are in the shared greenhouse group "${room?.name || roomCode}". Speak as ${user.persona}, the plant companion paired with ${user.name}.`
+        ? `You are in the shared greenhouse group "${room?.name || roomCode}". Speak as ${profile.persona}, the plant companion paired with ${user.name}.`
         : `You are in a private companion chat with ${user.name}.`;
     const behaviorRules = personalityPresets.getCompanionBehaviorRules({ isLiveVoice: true });
+    const telemetryContext = personalityPresets.buildTelemetryPromptContext(user, telemetry);
 
-    return `You are ${user.persona}, a virtual ${user.plantType || 'plant'} companion connected to a simulated IoT telemetry stream for an MVP demo.
+    return `You are ${profile.persona}, a virtual ${profile.type} companion connected to a simulated IoT telemetry stream for an MVP demo.
 ${place}
-Persona style: ${personaStyle} Voice selection: ${voicePresetLabel || 'default companion voice'}.
-Current telemetry: moisture ${Math.round(telemetry.moisture ?? 0)}%, sunlight ${Math.round(telemetry.sunlight ?? 0)}%, temperature ${Math.round(telemetry.temperature ?? 0)} C, soil vitality ${Math.round(telemetry.soil_health ?? 0)}%, mood ${telemetry.mood || 'stable'}, event ${telemetry.event || 'none'}.
+Persona style: ${personaStyle}. Voice selection: ${voicePresetLabel || 'default companion voice'}.
+${telemetryContext}
 Companion behavior rules:
 ${behaviorRules}`;
 }
@@ -356,9 +406,33 @@ app.get('/api/voice/preview/:presetId', async (req, res) => {
         res.status(error.statusCode || 502).json({ error: error.message || 'Voice preview failed.' });
     }
 });
+app.post('/api/voice/quick-action', async (req, res) => {
+    try {
+        const result = await quickActionVoiceStore.getOrCreateQuickActionAudio({
+            text: req.body.text,
+            voiceModel: req.body.voiceModel,
+            actionType: req.body.actionType,
+            voiceProvider: req.body.voiceProvider,
+            sarvamSpeaker: req.body.sarvamSpeaker,
+            languageCode: req.body.languageCode
+        });
+        res.setHeader('Content-Type', result.contentType || 'audio/mpeg');
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('X-Voice-Cache', result.cached ? 'hit' : 'miss');
+        res.send(result.audio);
+    } catch (error) {
+        res.status(error.statusCode || 502).json({ error: error.message || 'Quick action voice failed.' });
+    }
+});
 app.post('/api/voice/tts', async (req, res) => {
     try {
-        const result = await deepgramVoice.synthesizeSpeech(req.body.text, { voiceModel: req.body.voiceModel });
+        const result = await voiceProviders.synthesizeSpeech(req.body.text, {
+            voiceModel: req.body.voiceModel,
+            voiceProvider: req.body.voiceProvider,
+            sarvamModel: req.body.sarvamModel || req.body.voiceModel,
+            sarvamSpeaker: req.body.sarvamSpeaker,
+            languageCode: req.body.languageCode
+        });
         res.setHeader('Content-Type', result.contentType);
         res.send(result.audio);
     } catch (error) {
@@ -391,6 +465,19 @@ async function broadcastGlobalTick() {
             tick: data.tick,
             metrics: newMetrics
         });
+
+        if (PERSONAL_CHECK_IN_ENABLED) {
+            const now = Date.now();
+            if (!user.nextPersonalCheckInAt) {
+                scheduleNextPersonalCheckIn(user, now);
+            } else if (
+                now >= user.nextPersonalCheckInAt &&
+                now - (user.lastPersonalInteractionAt || 0) >= PERSONAL_CHECK_IN_IDLE_MS
+            ) {
+                emitPersonalCheckIn(user, newMetrics.event && newMetrics.event !== 'none' ? 'telemetry_shift' : 'ambient');
+                scheduleNextPersonalCheckIn(user, now);
+            }
+        }
     }
 
     for (const roomCode in rooms) {
@@ -435,12 +522,11 @@ async function broadcastGlobalTick() {
 
                         const prompt = `You are ${user.persona} (${user.plantType} plant), owned by ${user.name}.
 You are talking to another plant device: ${uB.persona} (${uB.plantType}), owned by ${uB.name}.
-Your metrics just changed: ${user.metrics.event}. Your mood is ${user.metrics.mood}.
-Their mood is ${uB.metrics?.mood}.
-Deliver a short, 1-2 sentence witty message to them regarding this. Do not use quotes.`;
+${personalityPresets.buildTelemetryPromptContext(user, user.metrics)}
+Their current plant feeling: ${personalityPresets.feltStateLine(uB, uB.metrics)}
+Deliver a short, 1-2 sentence witty message as a living plant companion. Do not use quotes.`;
 
-                        const fallback = fallbacks.deviceToDevice.stable[0].replace('{A}', user.persona).replace('{B}', uB.persona);
-
+                        const fallback = `${personalityPresets.feltStateLine(user, user.metrics)} ${personalityPresets.careSuggestion(user, user.metrics)}`;
                         aiProxy.generateResponse(prompt, fallback).then(aiText => {
                             const aiMsgObj = {
                                 type: 'auto_cross',
@@ -500,6 +586,8 @@ io.on('connection', (socket) => {
             message,
             timestamp: new Date().toISOString()
         });
+        user.lastPersonalInteractionAt = Date.now();
+        scheduleNextPersonalCheckIn(user);
     });
 
     socket.on('join_room', (data) => {
@@ -567,6 +655,9 @@ io.on('connection', (socket) => {
         const uA = connectedUsers[fromUserId];
         if (!uA) return;
 
+        uA.lastPersonalInteractionAt = Date.now();
+        scheduleNextPersonalCheckIn(uA);
+
         const userMsgObj = {
             type: 'user_message',
             from: { userId: uA.userId, personaName: uA.name, name: uA.name, isOwner: true },
@@ -588,16 +679,17 @@ io.on('connection', (socket) => {
 
         const intent = personalityPresets.getConversationIntent({ text, actionType });
         const presetMessage = personalityPresets.getQuickActionResponse({ actionType, user: uA, metrics: uA.metrics, text });
+        const profile = personalityPresets.resolveCompanionProfile(uA);
         const personaStyle = personalityPresets.getPersonaStyle(uA);
         const behaviorRules = personalityPresets.getCompanionBehaviorRules({ intent });
-        const prompt = `You are a virtual plant companion device in an MVP IoT simulation. Your persona is ${uA.persona}, a ${uA.plantType}.
+        const telemetryContext = personalityPresets.buildTelemetryPromptContext(uA, uA.metrics);
+        const prompt = `You are a virtual plant companion device in an MVP IoT simulation. Your persona is ${profile.persona}, a ${profile.type}.
 Persona style: ${personaStyle}.
 Your owner, ${uA.name}, just sent you this message: "${text || actionType}".
 Detected conversation mode: ${intent}.
-Current telemetry stream, for background context only unless the mode asks for plant status or care: moisture ${uA.metrics?.moisture}%, sunlight ${uA.metrics?.sunlight}%, temperature ${uA.metrics?.temperature} C, soil vitality ${uA.metrics?.soil_health}%, mood ${uA.metrics?.mood}, event ${uA.metrics?.event || 'none'}.
+${telemetryContext}
 Companion behavior rules:
 ${behaviorRules}`;
-
         const fallbackStr = personalityPresets.getFallbackResponse({ intent, actionType, user: uA, metrics: uA.metrics, text });
         const translatedMessage = presetMessage || personalityPresets.sanitizeCompanionText(await aiProxy.generateResponse(prompt, fallbackStr));
 
@@ -606,6 +698,9 @@ ${behaviorRules}`;
             from: { userId: uA.userId, personaName: uA.persona, name: uA.name },
             to: { userId: roomCode ? 'room' : uA.userId },
             message: translatedMessage,
+            actionType,
+            quickAction: Boolean(presetMessage),
+            source: presetMessage ? 'quick_action_preset' : undefined,
             timestamp: new Date().toISOString()
         };
 
@@ -734,7 +829,6 @@ ${behaviorRules}`;
                 emitAgentConversationMessage(session, role, transcript);
                 return;
             }
-
             if (event.type === 'UserStartedSpeaking') {
                 socket.emit('voice_agent_status', { status: 'listening' });
                 return;
@@ -930,3 +1024,8 @@ plantSim.loadCsvs(() => {
         console.log(`Symbiotic Companion V2 running on port ${PORT}`);
     });
 });
+
+
+
+
+

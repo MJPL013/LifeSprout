@@ -1,41 +1,38 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
-const deepgramVoice = require('./deepgramVoice');
+const voiceProviders = require('./voiceProviders');
 
 const PREVIEW_DIR = path.join(__dirname, 'data', 'voice-previews');
 
 const PREVIEWS = {
     'garden-friend': {
+        provider: 'deepgram',
         model: 'aura-2-luna-en',
         text: 'Garden Friend is ready. Soft leaves, steady signal, and a warm little hello.'
     },
-    'sprout-bright': {
-        model: 'aura-2-iris-en',
-        text: 'Sprout Bright is awake. Tiny leaf energy, big sunshine confidence.'
-    },
     'storybook-leaf': {
+        provider: 'deepgram',
         model: 'aura-2-cora-en',
         text: 'Storybook Leaf is listening. Every moisture reading deserves a tiny dramatic pause.'
     },
-    'spark-pop': {
-        model: 'aura-2-aurora-en',
-        text: 'Spark Pop reporting in. Sunlight is gossip, and I brought the enthusiasm.'
-    },
-    'tiny-drama': {
-        model: 'aura-2-ophelia-en',
-        text: 'Tiny Drama has entered the pot. The soil is stable, but my feelings are cinematic.'
-    },
-    sunburst: {
-        model: 'aura-2-phoebe-en',
-        text: 'Sunburst is online. Warm roots, quick thoughts, and absolutely no boring telemetry.'
-    },
     'calm-leaf': {
+        provider: 'deepgram',
         model: 'aura-2-helena-en',
         text: 'Calm Leaf is here. Caring signal, steady breath, no rush.'
     },
-    'demo-host': {
-        model: 'aura-2-thalia-en',
-        text: 'Demo Host is connected. Clear voice, bright signal, ready for the room.'
+    'sarvam-shubh': {
+        provider: 'sarvam',
+        model: 'bulbul:v3',
+        speaker: 'shubh',
+        languageCode: 'en-IN',
+        text: 'Shubham is here. Warm Indian English, gentle roots, and a friendly little leaf voice.'
+    },
+    'sarvam-priya': {
+        provider: 'sarvam',
+        model: 'bulbul:v3',
+        speaker: 'priya',
+        languageCode: 'en-IN',
+        text: 'Priya is listening. Soft, caring, and ready to make the plant feel like a friend.'
     }
 };
 
@@ -54,24 +51,72 @@ function getSafePreviewId(presetId) {
 }
 
 function getPreviewPath(presetId) {
+    return path.join(PREVIEW_DIR, `${getSafePreviewId(presetId)}.audio`);
+}
+
+function getLegacyPreviewPath(presetId) {
     return path.join(PREVIEW_DIR, `${getSafePreviewId(presetId)}.mp3`);
+}
+
+function getMetaPath(presetId) {
+    return path.join(PREVIEW_DIR, `${getSafePreviewId(presetId)}.json`);
+}
+
+function readMeta(metaPath) {
+    try {
+        if (!fs.existsSync(metaPath)) return null;
+        return JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    } catch {
+        return null;
+    }
+}
+
+function findCachedPreview(presetId) {
+    const previewPath = getPreviewPath(presetId);
+    if (fs.existsSync(previewPath) && fs.statSync(previewPath).size > 0) return previewPath;
+
+    const legacyPath = getLegacyPreviewPath(presetId);
+    if (fs.existsSync(legacyPath) && fs.statSync(legacyPath).size > 0) return legacyPath;
+
+    return null;
 }
 
 async function getOrCreatePreview(presetId, options = {}) {
     ensurePreviewDir();
-    const previewPath = getPreviewPath(presetId);
+    const safeId = getSafePreviewId(presetId);
+    const metaPath = getMetaPath(safeId);
+    const cachedPath = findCachedPreview(safeId);
 
-    if (!options.force && fs.existsSync(previewPath) && fs.statSync(previewPath).size > 0) {
+    if (!options.force && cachedPath) {
+        const meta = readMeta(metaPath);
         return {
-            audio: fs.readFileSync(previewPath),
-            contentType: 'audio/mpeg',
+            audio: fs.readFileSync(cachedPath),
+            contentType: meta?.contentType || (cachedPath.endsWith('.mp3') ? 'audio/mpeg' : 'application/octet-stream'),
             cached: true
         };
     }
 
-    const config = getPreviewConfig(presetId);
-    const result = await deepgramVoice.synthesizeSpeech(config.text, { voiceModel: config.model });
+    const config = getPreviewConfig(safeId);
+    const result = await voiceProviders.synthesizeSpeech(config.text, {
+        voiceProvider: config.provider,
+        voiceModel: config.model,
+        sarvamModel: config.model,
+        sarvamSpeaker: config.speaker,
+        languageCode: config.languageCode
+    });
+
+    const previewPath = getPreviewPath(safeId);
     fs.writeFileSync(previewPath, result.audio);
+    fs.writeFileSync(metaPath, JSON.stringify({
+        presetId: safeId,
+        provider: config.provider,
+        model: config.model,
+        speaker: config.speaker || null,
+        languageCode: config.languageCode || null,
+        contentType: result.contentType || 'audio/mpeg',
+        text: config.text,
+        createdAt: new Date().toISOString()
+    }, null, 2));
 
     return {
         ...result,
@@ -85,3 +130,4 @@ module.exports = {
     PREVIEW_DIR,
     PREVIEWS
 };
+

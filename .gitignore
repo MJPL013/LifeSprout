@@ -22,7 +22,6 @@ server/server.err.log
 # Local runtime data
 server/data/accounts.json
 server/data/rooms.json
-server/data/voice-previews/
 
 # OS/editor noise
 .DS_Store
@@ -36,3 +35,4 @@ SYMBIOTIC COMPANION SYSTEM.txt
 SYMBIOTIC_WEB_SIMULATION_PROMPT.md
 .agents/
 .codex/
+.codex-runtime/

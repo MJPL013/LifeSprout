@@ -3,6 +3,7 @@ import { API_URL } from './api';
 export const VOICE_PRESETS = [
     {
         id: 'garden-friend',
+        provider: 'deepgram',
         label: 'Garden Friend',
         model: 'aura-2-luna-en',
         previewSrc: '/voice-previews/garden-friend.mp3',
@@ -10,15 +11,8 @@ export const VOICE_PRESETS = [
         description: 'Warm, soft, and close to a gentle companion.'
     },
     {
-        id: 'sprout-bright',
-        label: 'Sprout Bright',
-        model: 'aura-2-iris-en',
-        previewSrc: '/voice-previews/sprout-bright.mp3',
-        previewText: 'Sprout Bright is awake. Tiny leaf energy, big sunshine confidence.',
-        description: 'Bright, youthful, and playful for demo conversations.'
-    },
-    {
         id: 'storybook-leaf',
+        provider: 'deepgram',
         label: 'Storybook Leaf',
         model: 'aura-2-cora-en',
         previewSrc: '/voice-previews/storybook-leaf.mp3',
@@ -26,31 +20,8 @@ export const VOICE_PRESETS = [
         description: 'Melodic, caring, and a little theatrical.'
     },
     {
-        id: 'spark-pop',
-        label: 'Spark Pop',
-        model: 'aura-2-aurora-en',
-        previewSrc: '/voice-previews/spark-pop.mp3',
-        previewText: 'Spark Pop reporting in. Sunlight is gossip, and I brought the enthusiasm.',
-        description: 'Cheerful, expressive, and high-energy.'
-    },
-    {
-        id: 'tiny-drama',
-        label: 'Tiny Drama',
-        model: 'aura-2-ophelia-en',
-        previewSrc: '/voice-previews/tiny-drama.mp3',
-        previewText: 'Tiny Drama has entered the pot. The soil is stable, but my feelings are cinematic.',
-        description: 'Expressive, enthusiastic, and demo-friendly.'
-    },
-    {
-        id: 'sunburst',
-        label: 'Sunburst',
-        model: 'aura-2-phoebe-en',
-        previewSrc: '/voice-previews/sunburst.mp3',
-        previewText: 'Sunburst is online. Warm roots, quick thoughts, and absolutely no boring telemetry.',
-        description: 'Energetic, warm, and casual.'
-    },
-    {
         id: 'calm-leaf',
+        provider: 'deepgram',
         label: 'Calm Leaf',
         model: 'aura-2-helena-en',
         previewSrc: '/voice-previews/calm-leaf.mp3',
@@ -58,16 +29,46 @@ export const VOICE_PRESETS = [
         description: 'Caring, relaxed, and a little more grounded.'
     },
     {
-        id: 'demo-host',
-        label: 'Demo Host',
-        model: 'aura-2-thalia-en',
-        previewSrc: '/voice-previews/demo-host.mp3',
-        previewText: 'Demo Host is connected. Clear voice, bright signal, ready for the room.',
-        description: 'Clear, energetic, and easy to hear in a room.'
+        id: 'sarvam-shubh',
+        provider: 'sarvam',
+        label: 'Shubham',
+        model: 'bulbul:v3',
+        speaker: 'shubh',
+        languageCode: 'en-IN',
+        previewText: 'Shubham is here. Warm Indian English, gentle roots, and a friendly little leaf voice.',
+        description: 'Warm Indian English voice with a grounded companion tone.'
+    },
+    {
+        id: 'sarvam-priya',
+        provider: 'sarvam',
+        label: 'Priya',
+        model: 'bulbul:v3',
+        speaker: 'priya',
+        languageCode: 'en-IN',
+        previewText: 'Priya is listening. Soft, caring, and ready to make the plant feel like a friend.',
+        description: 'Soft, caring, and less robotic for emotional replies.'
     }
 ];
 
+
+export const VOICE_PROVIDERS = [
+    {
+        id: 'deepgram',
+        label: 'Deepgram',
+        eyebrow: 'Live Agent',
+        description: 'Best for continuous personal voice chat and the current demo voices.'
+    },
+    {
+        id: 'sarvam',
+        label: 'Sarvam',
+        eyebrow: 'Regional TTS',
+        description: 'Indian-language voice output with Bulbul voices; STT adapter comes next.'
+    }
+];
+
+const DEFAULT_VOICE_PROVIDER = 'deepgram';
 const DEFAULT_VOICE_PRESET = VOICE_PRESETS[0];
+const QUICK_ACTION_VOICE_TYPES = new Set(['joke', 'cheer', 'check_status']);
 const CACHE_LIMIT = 18;
 const audioCache = new Map();
 
@@ -96,6 +97,33 @@ function writeMutedState(muted) {
     }
 }
 
+
+function getVoiceProviderStorageKey(userId) {
+    return `symbio_voice_provider_${userId || 'default'}_v1`;
+}
+
+export function getStoredVoiceProvider(userId) {
+    try {
+        const stored = localStorage.getItem(getVoiceProviderStorageKey(userId));
+        if (VOICE_PROVIDERS.some(provider => provider.id === stored)) return stored;
+
+        const storedVoiceId = localStorage.getItem(getVoiceStorageKey(userId));
+        const storedPreset = VOICE_PRESETS.find(preset => preset.id === storedVoiceId);
+        return storedPreset?.provider || DEFAULT_VOICE_PROVIDER;
+    } catch {
+        return DEFAULT_VOICE_PROVIDER;
+    }
+}
+
+export function storeVoiceProvider(userId, providerId) {
+    const provider = VOICE_PROVIDERS.some(item => item.id === providerId) ? providerId : DEFAULT_VOICE_PROVIDER;
+    try {
+        localStorage.setItem(getVoiceProviderStorageKey(userId), provider);
+    } catch {
+        // Ignore private browsing or storage errors.
+    }
+    return provider;
+}
 function getVoiceStorageKey(userId) {
     return `symbio_voice_${userId || 'default'}_v1`;
 }
@@ -205,10 +233,9 @@ function stripEmoji(text) {
 }
 
 function browserVoiceSettings(presetId) {
-    const bright = ['sprout-bright', 'spark-pop', 'tiny-drama', 'sunburst'];
     if (presetId === 'calm-leaf') return { pitch: 1.15, rate: 0.94 };
     if (presetId === 'storybook-leaf') return { pitch: 1.3, rate: 0.96 };
-    if (bright.includes(presetId)) return { pitch: 1.75, rate: 1.16 };
+    if (presetId === 'sarvam-shubh' || presetId === 'sarvam-priya') return { pitch: 1.2, rate: 1.02 };
     return { pitch: 1.35, rate: 1.06 };
 }
 
@@ -277,24 +304,29 @@ export async function playVoicePreview(presetId) {
     previewActive = true;
     stopCurrentPlayback();
 
-    try {
-        currentPreviewAudio = new Audio(preset.previewSrc);
-        currentPreviewAudio.preload = 'auto';
-        return await playAudioElement(currentPreviewAudio, epoch, 'saved-preview');
-    } catch (staticError) {
-        if (epoch !== voiceEpoch) return { provider: 'interrupted' };
+    let staticError = null;
+    if (preset.previewSrc) {
         try {
-            const routedSrc = `${API_URL}/api/voice/preview/${encodeURIComponent(preset.id)}`;
-            currentPreviewAudio = new Audio(routedSrc);
+            currentPreviewAudio = new Audio(preset.previewSrc);
             currentPreviewAudio.preload = 'auto';
-            return await playAudioElement(currentPreviewAudio, epoch, 'server-preview');
-        } catch (routeError) {
-            if (epoch === voiceEpoch) previewActive = false;
-            currentPreviewAudio = null;
-            const message = routeError.message || staticError.message || 'Preview unavailable.';
-            console.warn('Voice preview unavailable:', message);
-            return { provider: 'unavailable', error: message };
+            return await playAudioElement(currentPreviewAudio, epoch, 'saved-preview');
+        } catch (error) {
+            staticError = error;
         }
+    }
+
+    if (epoch !== voiceEpoch) return { provider: 'interrupted' };
+    try {
+        const routedSrc = `${API_URL}/api/voice/preview/${encodeURIComponent(preset.id)}`;
+        currentPreviewAudio = new Audio(routedSrc);
+        currentPreviewAudio.preload = 'auto';
+        return await playAudioElement(currentPreviewAudio, epoch, `${preset.provider || 'server'}-preview`);
+    } catch (routeError) {
+        if (epoch === voiceEpoch) previewActive = false;
+        currentPreviewAudio = null;
+        const message = routeError.message || staticError?.message || 'Preview unavailable.';
+        console.warn('Voice preview unavailable:', message);
+        return { provider: 'unavailable', error: message };
     }
 }
 
@@ -304,7 +336,10 @@ export const speakMessage = async (text, context = {}) => {
 
     const voicePreset = context.voicePreset || getStoredVoicePreset(context.userId);
     const voiceModel = context.voiceModel || voicePreset.model;
-    const cacheKey = `${voiceModel || 'browser'}::${cleanText}`;
+    const voiceProvider = context.voiceProvider || voicePreset.provider || getStoredVoiceProvider(context.userId);
+    const quickActionType = context.quickActionType || context.actionType;
+    const useQuickActionCache = QUICK_ACTION_VOICE_TYPES.has(quickActionType);
+    const cacheKey = `${useQuickActionCache ? 'quick-action' : 'tts'}::${voiceProvider || 'browser'}::${voiceModel || 'default'}::${voicePreset.speaker || ''}::${voicePreset.languageCode || ''}::${quickActionType || 'message'}::${cleanText}`;
     const epoch = voiceEpoch + 1;
     voiceEpoch = epoch;
     previewActive = false;
@@ -313,17 +348,26 @@ export const speakMessage = async (text, context = {}) => {
         const cachedUrl = audioCache.get(cacheKey);
         if (cachedUrl) {
             await playCachedAudio(cachedUrl, epoch);
-            return { provider: 'deepgram-cache' };
+            return { provider: useQuickActionCache ? 'quick-action-memory-cache' : 'deepgram-cache' };
         }
 
         stopCurrentPlayback();
-        const response = await fetch(`${API_URL}/api/voice/tts`, {
+        const endpoint = useQuickActionCache ? '/api/voice/quick-action' : '/api/voice/tts';
+        const response = await fetch(`${API_URL}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: cleanText, voiceModel, ...context })
+            body: JSON.stringify({
+                ...context,
+                text: cleanText,
+                voiceModel,
+                voiceProvider,
+                sarvamSpeaker: context.sarvamSpeaker || voicePreset.speaker,
+                languageCode: context.languageCode || voicePreset.languageCode,
+                actionType: quickActionType
+            })
         });
 
-        if (!response.ok) throw new Error('Deepgram TTS unavailable');
+        if (!response.ok) throw new Error(useQuickActionCache ? 'Quick action voice unavailable' : 'Deepgram TTS unavailable');
 
         const blob = await response.blob();
         if (isVoiceMuted || previewActive || epoch !== voiceEpoch) return;
@@ -332,7 +376,8 @@ export const speakMessage = async (text, context = {}) => {
         audioCache.set(cacheKey, audioUrl);
         pruneCache();
         await playCachedAudio(audioUrl, epoch);
-        return { provider: 'deepgram' };
+        const serverCache = response.headers.get('X-Voice-Cache');
+        return { provider: useQuickActionCache ? `quick-action-${serverCache || 'generated'}` : voiceProvider };
     } catch {
         if (isVoiceMuted || previewActive || epoch !== voiceEpoch) return;
         speakWithBrowser(cleanText, { ...context, voicePresetId: voicePreset.id, voicePreset });
@@ -744,3 +789,9 @@ export async function startVoiceAgentCapture({
         });
     });
 }
+
+
+
+
+
+

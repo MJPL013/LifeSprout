@@ -1,4 +1,4 @@
-const { GoogleGenAI } = require('@google/genai');
+﻿const { GoogleGenAI } = require('@google/genai');
 const axios = require('axios');
 
 // Initialize Gemini conditionally
@@ -7,6 +7,9 @@ if (process.env.GEMINI_API_KEY) {
     ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 }
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const USE_OLLAMA = process.env.USE_OLLAMA === 'true';
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 1200);
+const AI_PROVIDER = String(process.env.AI_PROVIDER || 'deepseek').trim().toLowerCase();
 
 // Global throttling for local LLM to prevent system stall
 let activeRequests = 0;
@@ -73,7 +76,7 @@ async function generateOllamaResponse(prompt) {
             options: {
                 temperature: 0.8
             }
-        });
+        }, { timeout: OLLAMA_TIMEOUT_MS });
         return response.data.response;
     } catch (err) {
         console.error('Ollama Error:', err.message);
@@ -95,7 +98,7 @@ async function generateResponse(prompt, fallbackString = "...") {
     activeRequests++;
     try {
         // 1. Try Ollama (Local LLM)
-        if (process.env.USE_OLLAMA === 'true' || process.env.OLLAMA_URL) {
+        if (USE_OLLAMA) {
             try {
                 const text = await generateOllamaResponse(prompt);
                 if (text) return text.replace(/[""]/g, '').trim();
@@ -104,16 +107,17 @@ async function generateResponse(prompt, fallbackString = "...") {
             }
         }
 
-        // 2. Try Gemini Primary
-        if (process.env.GEMINI_API_KEY && ai) {
-            const text = await generateGeminiResponse(prompt);
-            if (text) return text.replace(/[""]/g, '').trim(); // clean string
-        }
+        const providerOrder = AI_PROVIDER === 'gemini' ? ['gemini', 'deepseek'] : ['deepseek', 'gemini'];
+        for (const provider of providerOrder) {
+            if (provider === 'deepseek' && process.env.DEEPSEEK_API_KEY) {
+                const text = await generateDeepSeekResponse(prompt);
+                if (text) return text.replace(/[""]/g, '').trim();
+            }
 
-        // Fallback to DeepSeek Primary if Gemini isn't configured
-        if (process.env.DEEPSEEK_API_KEY) {
-            const text = await generateDeepSeekResponse(prompt);
-            if (text) return text.replace(/[""]/g, '').trim(); // clean string
+            if (provider === 'gemini' && process.env.GEMINI_API_KEY && ai) {
+                const text = await generateGeminiResponse(prompt);
+                if (text) return text.replace(/[""]/g, '').trim();
+            }
         }
 
         // If no keys configured, return structured fallback
@@ -141,3 +145,5 @@ async function generateResponse(prompt, fallbackString = "...") {
 module.exports = {
     generateResponse
 };
+
+

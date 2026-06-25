@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { personas } from '../data/personas';
 
 export default function Onboarding({ account, onComplete }) {
@@ -7,12 +7,13 @@ export default function Onboarding({ account, onComplete }) {
     const [deviceName, setDeviceName] = useState('');
     const [error, setError] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const selectedPlant = personas.find(p => p.id === selectedPlantId) || personas[0];
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!name || !selectedPlantId) return;
 
-        const plant = personas.find(p => p.id === selectedPlantId);
+        const plant = selectedPlant;
         setError('');
         setIsSaving(true);
 
@@ -86,10 +87,10 @@ export default function Onboarding({ account, onComplete }) {
                     </div>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-4">
                     <div className="flex justify-between items-end px-1">
                         <label className="text-[11px] font-bold uppercase tracking-widest text-outline">
-                            Select a Plant Companion
+                            Choose Your Plant Character
                         </label>
                         <span className="text-xs text-primary font-medium">Binding sensor profile...</span>
                     </div>
@@ -98,23 +99,56 @@ export default function Onboarding({ account, onComplete }) {
                             <div
                                 key={p.id}
                                 onClick={() => setSelectedPlantId(p.id)}
-                                className={`flex-shrink-0 w-60 glass-card rounded-3xl p-5 transition-all duration-300 cursor-pointer snap-start border-2 hover:border-primary/40 ${selectedPlantId === p.id ? 'border-primary bg-primary/5 shadow-md scale-[0.98]' : 'border-transparent bg-white/50'}`}
+                                className={`flex-shrink-0 w-64 glass-card rounded-3xl p-4 transition-all duration-300 cursor-pointer snap-start border-2 hover:border-primary/40 ${selectedPlantId === p.id ? 'border-primary bg-primary/5 shadow-md scale-[0.98]' : 'border-transparent bg-white/50'}`}
                             >
-                                <div className="h-32 w-full mb-3 rounded-2xl overflow-hidden bg-primary/5">
+                                <div className="h-28 w-full mb-3 rounded-2xl overflow-hidden bg-primary/5 relative">
                                     <img
                                         className="w-full h-full object-cover opacity-90 mix-blend-multiply"
                                         alt={p.type}
                                         src={p.imgUrl}
                                     />
+                                    <div className="absolute left-3 bottom-3 rounded-full bg-white/85 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-primary shadow-sm">
+                                        {p.name}
+                                    </div>
                                 </div>
                                 <h3 className="font-display text-lg font-bold text-primary mb-1">
-                                    {p.type} ({p.name})
+                                    {p.type}
                                 </h3>
-                                <p className="text-on-surface-variant text-xs leading-relaxed">
+                                <p className="text-on-surface-variant text-xs leading-relaxed min-h-[4.25rem]">
                                     {p.description}
                                 </p>
+                                <div className="mt-3 flex flex-wrap gap-1.5">
+                                    <span className="rounded-full bg-white/70 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-outline">{p.healthyVoice}</span>
+                                    <span className="rounded-full bg-primary/10 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-primary">{p.council}</span>
+                                </div>
                             </div>
                         ))}
+                    </div>
+
+                    <div className="glass-card bg-white/55 p-5 rounded-3xl border border-primary/10">
+                        <div className="flex gap-4 items-start">
+                            <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/10 shrink-0 overflow-hidden p-1.5">
+                                <img className="w-full h-full object-contain mix-blend-multiply" src={selectedPlant.imgUrl} alt={selectedPlant.type} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[10px] font-bold uppercase tracking-widest text-outline">Selected Character</div>
+                                <h3 className="font-display text-xl font-bold text-primary leading-tight">{selectedPlant.name} / {selectedPlant.type}</h3>
+                                <p className="text-xs text-on-surface-variant leading-relaxed mt-1">{selectedPlant.character}</p>
+                            </div>
+                        </div>
+                        <div className="grid md:grid-cols-2 gap-3 mt-4">
+                            <div className="rounded-2xl bg-white/60 border border-outline-variant/20 p-3">
+                                <div className="text-[9px] font-bold uppercase tracking-widest text-outline mb-1">When Healthy</div>
+                                <p className="text-xs text-on-surface leading-relaxed">Speaks {selectedPlant.healthyVoice}; the stream feels like a living {selectedPlant.statusMetaphor}.</p>
+                            </div>
+                            <div className="rounded-2xl bg-white/60 border border-outline-variant/20 p-3">
+                                <div className="text-[9px] font-bold uppercase tracking-widest text-outline mb-1">When Unwell</div>
+                                <p className="text-xs text-on-surface leading-relaxed">{selectedPlant.unwellVoice}, then brings in {selectedPlant.council} for a tiny care plan.</p>
+                            </div>
+                        </div>
+                        <blockquote className="mt-3 rounded-2xl bg-primary/5 border border-primary/10 px-4 py-3 text-xs italic text-primary leading-relaxed">
+                            "{selectedPlant.exampleLine}"
+                        </blockquote>
                     </div>
                 </div>
 
